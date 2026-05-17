@@ -1,0 +1,147 @@
+{
+  "FinalHFR": 5.292140817103702,
+  "Region": null,
+  "HocusFocusStarDetectionOptions": null,
+  "HocusFocusAutoFocusOptions": {
+    "MaxConcurrent": 0,
+    "FastFocusModeEnabled": false,
+    "FastStepSize": 1,
+    "FastOffsetSteps": 4,
+    "FastThreshold_Seconds": 3600,
+    "FastThreshold_Celcius": 5,
+    "FastThreshold_FocuserPosition": 100,
+    "ValidateHfrImprovement": true,
+    "HFRImprovementThreshold": 0.15,
+    "AutoFocusTimeoutSeconds": 600,
+    "SavePath": "",
+    "Save": false,
+    "LastSelectedLoadPath": "E:\\Dropbox\\Family Room\\Astrophotography\\Logs\\AutoFocus\\glarf",
+    "FocuserOffset": 0,
+    "MaxOutlierRejections": 1,
+    "OutlierRejectionConfidence": 0.9,
+    "UnevenHyperbolicFitEnabled": true,
+    "WeightedHyperbolicFitEnabled": true
+  },
+  "FocuserOptions": {
+    "Id": "ASCOM.EAF.Focuser",
+    "LastDeviceName": "ZWO Focuser (ASCOM)",
+    "UseFilterWheelOffsets": true,
+    "AutoFocusStepSize": 175,
+    "AutoFocusInitialOffsetSteps": 3,
+    "AutoFocusExposureTime": 1.0,
+    "AutoFocusMethod": 0,
+    "ContrastDetectionMethod": 2,
+    "AutoFocusDisableGuiding": true,
+    "FocuserSettleTime": 0,
+    "AutoFocusTotalNumberOfAttempts": 1,
+    "AutoFocusNumberOfFramesPerPoint": 1,
+    "AutoFocusInnerCropRatio": 0.75,
+    "AutoFocusOuterCropRatio": 1.0,
+    "BacklashIn": 0,
+    "BacklashOut": 2000,
+    "AutoFocusBinning": 1,
+    "AutoFocusUseBrightestStars": 0,
+    "AutoFocusCurveFitting": 3,
+    "BacklashCompensationModel": 1,
+    "AutoFocusTimeoutSeconds": 600,
+    "RSquaredThreshold": 0.7
+  },
+  "Version": 2,
+  "Filter": "L",
+  "AutoFocuserName": "Hocus Focus",
+  "StarDetectorName": "NINA",
+  "Timestamp": "2026-05-04T03:43:12.7387058-04:00",
+  "Temperature": 14.399999618530273,
+  "Method": "STARHFR",
+  "Fitting": "HYPERBOLIC",
+  "InitialFocusPoint": {
+    "Position": 13735.0,
+    "Value": 5.365780475729857,
+    "Error": 0.0
+  },
+  "CalculatedFocusPoint": {
+    "Position": 13668.456686285463,
+    "Value": 3.7754838009396274,
+    "Error": 0.0
+  },
+  "PreviousFocusPoint": {
+    "Position": 13668.456686285463,
+    "Value": 3.7754838009396274,
+    "Error": 0.0
+  },
+  "MeasurePoints": [
+    {
+      "Position": 13210.0,
+      "Value": 10.989533679509586,
+      "Error": 6.631528671993325
+    },
+    {
+      "Position": 13385.0,
+      "Value": 8.008370354017035,
+      "Error": 0.13030486498681937
+    },
+    {
+      "Position": 13560.0,
+      "Value": 5.692672062121445,
+      "Error": 0.4825611974756448
+    },
+    {
+      "Position": 13735.0,
+      "Value": 5.168062024318563,
+      "Error": 0.6479734869936781
+    },
+    {
+      "Position": 13910.0,
+      "Value": 9.459921535238989,
+      "Error": 0.9526115026059884
+    },
+    {
+      "Position": 14085.0,
+      "Value": 12.804020488489856,
+      "Error": 0.9946424006882116
+    },
+    {
+      "Position": 14260.0,
+      "Value": 0.0,
+      "Error": 0.001
+    },
+    {
+      "Position": 14435.0,
+      "Value": 0.0,
+      "Error": 0.001
+    }
+  ],
+  "Intersections": {
+    "TrendLineIntersection": {
+      "Position": 13650.0,
+      "Value": 4.494281658839867,
+      "Error": 0.0
+    },
+    "HyperbolicMinimum": {
+      "Position": 13668.456686285463,
+      "Value": 3.7754838009396274,
+      "Error": 0.0
+    },
+    "QuadraticMinimum": null,
+    "GaussianMaximum": null
+  },
+  "Fittings": {
+    "Quadratic": "",
+    "Hyperbolic": "y = min(max(0, (13668.457 - x) / 175), 1) * 0.001/0.067 * √((x - 13668.457)² + 0.067²) + (1 - min(max(0, (13668.457 - x) / 175), 1)) * 0.001/0.045 * √((x - 13668.457)² + 0.045²) + 3.774",
+    "Gaussian": "",
+    "LeftTrend": "y = -0.013255476916196428 * x + 185.43343925177436",
+    "RightTrend": "y = 0.019109136875719135 * x + -256.34817240601416"
+  },
+  "RSquares": {
+    "Quadratic": "NaN",
+    "Hyperbolic": 0.9962441941095639,
+    "LeftTrend": 0.9995388291304703,
+    "RightTrend": 1.0
+  },
+  "BacklashCompensation": {
+    "BacklashCompensationModel": "OVERSHOOT",
+    "BacklashIN": 0,
+    "BacklashOUT": 2000
+  },
+  "Duration": "00:02:07.4969711"
+}

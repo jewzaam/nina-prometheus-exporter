@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>NINA.Plugin.PrometheusExporter</AssemblyName>
+    <RootNamespace>NINA.Plugin.PrometheusExporter</RootNamespace>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;bin\**;obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NINA.Plugin" Version="3.2.*" />
+    <PackageReference Include="prometheus-net" Version="8.*" />
+    <!-- EmbedIO provides a managed-socket HTTP listener (HttpListenerMode.EmbedIO) that bypasses
+         Windows http.sys, so the plugin can bind to non-loopback addresses without admin/URL ACL. -->
+    <PackageReference Include="EmbedIO" Version="3.5.2" />
+  </ItemGroup>
+
+  <!-- Plugin install (copy DLLs to %LOCALAPPDATA%\NINA\Plugins\3.0.0\Prometheus Exporter\)
+       lives in scripts/install.ps1 and runs only via `make install`. Keeping it out of the
+       csproj post-build target avoids `make check` failing when NINA is running and holds
+       the deployed DLL locked. -->
+
+</Project>
