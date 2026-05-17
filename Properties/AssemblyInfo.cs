@@ -37,7 +37,7 @@ Prometheus Exporter is a NINA plugin that exposes a Prometheus scrape endpoint f
 
 Exposed metrics cover: equipment connection state, sequence status, per-exposure telemetry (HFR, stars, RMS, ADU stats), autofocus reports (run state, R-squared, position, duration), guiding RMS and per-step pulses, mount position and tracking, camera temperature and cooler power, focuser position/temperature, filter wheel position, plus dome/rotator/flat panel/safety monitor/weather where present.
 
-The endpoint defaults to http://0.0.0.0:9876/metrics. All settings (port, bind address, sequence poll cadence, autofocus timeout) are configurable in the plugin Options panel and apply without a NINA restart.
+The endpoint defaults to http://127.0.0.1:9876/metrics (loopback only). To expose on the LAN, change the Bind address in the plugin Options panel (e.g. 0.0.0.0 or a specific LAN IP). All settings (port, bind address, sequence poll cadence, autofocus timeout) are configurable in Options; Port/Bind changes take effect when you click Apply.
 
 # Getting help #
 

@@ -32,12 +32,12 @@ namespace NINA.Plugin.PrometheusExporter.Stream
 
     internal sealed class AutoFocusReport
     {
-        public string Filter { get; set; } = "unknown";
-        public string Method { get; set; } = "unknown";
-        public string Fitting { get; set; } = "unknown";
+        public string Filter { get; set; } = Constants.Unknown;
+        public string Method { get; set; } = Constants.Unknown;
+        public string Fitting { get; set; } = Constants.Unknown;
         public int BacklashIn { get; set; }
         public int BacklashOut { get; set; }
-        public string BacklashModel { get; set; } = "unknown";
+        public string BacklashModel { get; set; } = Constants.Unknown;
 
         public double FinalHfr { get; set; } = double.NaN;
         public double DurationSeconds { get; set; } = double.NaN;
@@ -63,9 +63,9 @@ namespace NINA.Plugin.PrometheusExporter.Stream
         {
             var report = new AutoFocusReport
             {
-                Filter = GetString(root, "Filter", "unknown"),
-                Method = GetString(root, "Method", "unknown"),
-                Fitting = GetString(root, "Fitting", "unknown"),
+                Filter = GetString(root, "Filter", Constants.Unknown),
+                Method = GetString(root, "Method", Constants.Unknown),
+                Fitting = GetString(root, "Fitting", Constants.Unknown),
                 FinalHfr = GetDouble(root, "FinalHFR"),
                 DurationSeconds = ParseDurationSeconds(GetString(root, "Duration", string.Empty))
             };
@@ -73,7 +73,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             {
                 report.BacklashIn = GetInt(bc, "BacklashIN", 0);
                 report.BacklashOut = GetInt(bc, "BacklashOUT", 0);
-                report.BacklashModel = GetString(bc, "BacklashCompensationModel", "unknown");
+                report.BacklashModel = GetString(bc, "BacklashCompensationModel", Constants.Unknown);
             }
             if (root.TryGetProperty("InitialFocusPoint", out var ifp))
             {

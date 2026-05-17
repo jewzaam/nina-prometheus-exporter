@@ -56,7 +56,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
                 _running = false;
             }
             _onRunningChanged(false);
-            _onFailure("timeout");
+            _onFailure(Constants.AfFailureTimeout);
         }
     }
 }

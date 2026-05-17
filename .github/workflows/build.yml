@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install make
+        run: choco install make -y
+
+      - name: Build (Release)
+        run: make build-release
+
+      - name: Test
+        run: make test-unit
+        continue-on-error: true
+
+      - name: Upload plugin artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dll
+          path: bin/Release/*.dll

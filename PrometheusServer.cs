@@ -5,7 +5,6 @@ using NINA.Core.Utility;
 using Prometheus;
 using System;
 using System.IO;
-using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,15 +19,28 @@ namespace NINA.Plugin.PrometheusExporter
     {
         private WebServer? _server;
         private CancellationTokenSource? _cts;
-        private Thread? _serverThread;
-        public string Status { get; private set; } = "stopped";
+        private Task? _runTask;
+        private string _status = Constants.StatusStopped;
+
+        public string Status
+        {
+            get => _status;
+            private set
+            {
+                if (_status == value) return;
+                _status = value;
+                StatusChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public event EventHandler? StatusChanged;
 
         public virtual void Start(string bindAddress, int port)
         {
             // EmbedIO accepts hostname-style prefixes. For all-interfaces use "*"; for a specific
             // address use that address verbatim. Normalize the typical aliases to "*".
-            var listenerHost = (bindAddress == "0.0.0.0" || bindAddress == "+" || string.IsNullOrWhiteSpace(bindAddress))
-                ? "*"
+            var listenerHost = (bindAddress == Constants.BindAllIpv4 || bindAddress == Constants.BindAllHttpListener || string.IsNullOrWhiteSpace(bindAddress))
+                ? Constants.BindAllEmbedIo
                 : bindAddress;
             var prefix = $"http://{listenerHost}:{port}/";
 
@@ -43,29 +55,41 @@ namespace NINA.Plugin.PrometheusExporter
                         ctx.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
                         using var ms = new MemoryStream();
                         await Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms, ctx.CancellationToken);
-                        var body = Encoding.UTF8.GetString(ms.ToArray());
-                        await ctx.SendStringAsync(body, "text/plain", Encoding.UTF8);
+                        await ctx.SendStringAsync(Encoding.UTF8.GetString(ms.ToArray()), "text/plain", Encoding.UTF8);
                     });
 
-                var srv = _server;
-                var tok = _cts.Token;
-                _serverThread = new Thread(() =>
-                {
-                    try { srv.RunAsync(tok).GetAwaiter().GetResult(); }
-                    catch (OperationCanceledException) { /* expected on Stop */ }
-                    catch (Exception ex) { Logger.Error($"PrometheusServer: RunAsync threw: {ex}"); }
-                })
-                { Name = "PrometheusExporter HTTP", IsBackground = true };
-                _serverThread.Start();
+                Status = Constants.StatusStarting;
+                _runTask = _server.RunAsync(_cts.Token);
 
-                Status = $"running on {bindAddress}:{port}";
-                Logger.Info($"PrometheusServer: {Status} (EmbedIO managed listener)");
-            }
-            catch (HttpListenerException ex)
-            {
-                // Should be unreachable under HttpListenerMode.EmbedIO, but kept for defense in depth.
-                Status = $"failed: HttpListener {ex.ErrorCode} — {ex.Message}";
-                Logger.Error($"PrometheusServer start failed: {ex}");
+                // Probe for a result: either RunAsync faulted (bind failed) or the server reached Listening.
+                // EmbedIO's HttpListenerMode.EmbedIO surfaces SocketException via RunAsync's task when
+                // the underlying TcpListener.Start() fails (port in use, bind address invalid, etc.).
+                var deadline = DateTime.UtcNow.AddSeconds(Constants.ServerStartProbeTimeoutSeconds);
+                while (DateTime.UtcNow < deadline)
+                {
+                    if (_runTask.IsFaulted)
+                    {
+                        var ex = _runTask.Exception?.InnerException;
+                        Status = $"failed: {ex?.Message ?? _runTask.Exception?.Message ?? Constants.Unknown}";
+                        Logger.Error($"PrometheusServer start failed: {_runTask.Exception}");
+                        return;
+                    }
+                    if (_runTask.IsCompleted)
+                    {
+                        Status = "stopped (server returned immediately)";
+                        return;
+                    }
+                    if (_server.State == WebServerState.Listening)
+                    {
+                        Status = $"running on {bindAddress}:{port}";
+                        Logger.Info($"PrometheusServer: {Status} (EmbedIO managed listener)");
+                        return;
+                    }
+                    Thread.Sleep(Constants.ServerStartProbeIntervalMs);
+                }
+                // Timeout — server never reached Listening within the deadline.
+                Status = $"unknown: server state is {_server.State} after probe timeout";
+                Logger.Warning($"PrometheusServer: {Status}");
             }
             catch (Exception ex)
             {
@@ -90,8 +114,8 @@ namespace NINA.Plugin.PrometheusExporter
                 _server = null;
                 _cts?.Dispose();
                 _cts = null;
-                _serverThread = null;
-                Status = "stopped";
+                _runTask = null;
+                Status = Constants.StatusStopped;
             }
         }
 

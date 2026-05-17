@@ -29,7 +29,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             _current = Metrics.CreateGauge(
                 "nina_filter_current",
                 "1 for the currently selected filter, 0 for previously selected",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames("filter_name") });
+                new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilterName) });
         }
 
         public void Subscribe()
@@ -52,7 +52,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             var lv = _factory.LabelValues();
             if (_lastFilterName != null)
                 _current.WithLabels(_factory.LabelValues(_lastFilterName)).Set(0);
-            var newName = args.To?.Name ?? "unknown";
+            var newName = args.To?.Name ?? Constants.Unknown;
             _current.WithLabels(_factory.LabelValues(newName)).Set(1);
             _lastFilterName = newName;
             if (args.To != null)
