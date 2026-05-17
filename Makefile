@@ -25,8 +25,9 @@ clean:  ## dotnet clean + remove bin/, obj/
 format:  ## Apply dotnet format in place
 	"$(DOTNET)" format
 
-restore:  ## dotnet restore (NuGet packages)
+restore:  ## dotnet restore (regenerates packages.lock.json for both projects)
 	"$(DOTNET)" restore
+	"$(DOTNET)" restore $(TEST_PROJECT)
 
 install: build-release  ## Build Release + copy DLLs to NINA Plugins dir
 	$(PWSH) scripts/install.ps1

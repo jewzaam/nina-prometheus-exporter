@@ -3,8 +3,19 @@ name: Build
 on:
   push:
     branches: [main]
+    # Skip CI on doc-only commits — the workflow only builds C#, nothing in these paths affects it.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
 
 jobs:
   build:
@@ -16,16 +27,24 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+          # Cache the NuGet packages dir. Keyed on csproj hashes — invalidates only when a project
+          # file changes. The NINA.Plugin nuget transitively drags in Accord/ASCOM/OxyPlot/etc., so
+          # the cold restore is ~60s; a warm cache cuts it to a few seconds.
+          cache: true
+          cache-dependency-path: '**/*.csproj'
 
-      - name: Install make
-        run: choco install make -y
+      # Restore once, build once, test without rebuilding. The test project references the main
+      # project, so building it transitively builds the main DLL into bin/Release/.
+      # --locked-mode rejects drift from the committed packages.lock.json files; if NuGet wants
+      # to resolve anything not in the lock, restore fails. Run `make restore` locally to refresh.
+      - name: Restore
+        run: dotnet restore tests/NINA.Plugin.PrometheusExporter.Tests.csproj --locked-mode
 
       - name: Build (Release)
-        run: make build-release
+        run: dotnet build tests/NINA.Plugin.PrometheusExporter.Tests.csproj -c Release --no-restore
 
       - name: Test
-        run: make test-unit
-        continue-on-error: true
+        run: dotnet test tests/NINA.Plugin.PrometheusExporter.Tests.csproj -c Release --no-restore --no-build
 
       - name: Upload plugin artifact
         if: github.ref == 'refs/heads/main'
