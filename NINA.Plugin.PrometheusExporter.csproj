@@ -14,6 +14,9 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;bin\**;obj\**</DefaultItemExcludes>
+    <!-- Generate packages.lock.json so NuGet caches resolve to the same exact set every run.
+         CI uses `dotnet restore /p:RestoreLockedMode=true` to enforce no resolution drift. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
