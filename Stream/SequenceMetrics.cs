@@ -31,7 +31,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             _mediator = mediator;
             _options = options;
 
-            var ln = _factory.LabelNames("category", "item");
+            var ln = _factory.LabelNames(Constants.LabelCategory, Constants.LabelItem);
             _status = Metrics.CreateGauge("nina_status", "1 while sequence item is running, else 0", new GaugeConfiguration { LabelNames = ln });
             _started = Metrics.CreateCounter("nina_status_count_started_total", "Count of sequence-item runs started", new CounterConfiguration { LabelNames = ln });
             _completed = Metrics.CreateCounter("nina_status_count_completed_total", "Count of sequence-item runs completed", new CounterConfiguration { LabelNames = ln });
@@ -109,7 +109,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             foreach (var item in items)
             {
                 if (item == null) continue;
-                var category = item.Parent?.Name ?? item.Category ?? "unknown";
+                var category = item.Parent?.Name ?? item.Category ?? Constants.Unknown;
                 var name = item.Name ?? item.GetType().Name;
                 set.Add((category, name));
             }

@@ -39,6 +39,7 @@ namespace NINA.Plugin.PrometheusExporter
         private readonly FlatDeviceMetrics _flat;
         private readonly SafetyMetrics _safety;
         private readonly WeatherMetrics _weather;
+        private readonly SwitchMetrics _switch;
 
         // Exposed for the Options XAML DataTemplate binding (`{Binding ExporterOptions.Port}`).
         public PrometheusExporterOptions ExporterOptions { get; }
@@ -87,8 +88,22 @@ namespace NINA.Plugin.PrometheusExporter
             _flat = new FlatDeviceMetrics(_factory, flatDeviceMediator);
             _safety = new SafetyMetrics(_factory, safetyMonitorMediator);
             _weather = new WeatherMetrics(_factory, weatherMediator);
+            _switch = new SwitchMetrics(_factory, switchMediator);
 
             ExporterOptions.PropertyChanged += OnOptionsChanged;
+            ExporterOptions.ApplyServerRequested += OnApplyServerRequested;
+            _server.StatusChanged += OnServerStatusChanged;
+        }
+
+        private void OnApplyServerRequested(object? sender, EventArgs e)
+        {
+            _server.Restart(ExporterOptions.BindAddress, ExporterOptions.Port);
+            ExporterOptions.MarkApplied();
+        }
+
+        private void OnServerStatusChanged(object? sender, EventArgs e)
+        {
+            ExporterOptions.ServerStatus = _server.Status;
         }
 
         public override Task Initialize()
@@ -103,6 +118,7 @@ namespace NINA.Plugin.PrometheusExporter
 
             _server.Start(ExporterOptions.BindAddress, ExporterOptions.Port);
             ExporterOptions.ServerStatus = _server.Status;
+            ExporterOptions.MarkApplied();
             Logger.Info($"PrometheusExporter Initialize: {_server.Status}");
             return Task.CompletedTask;
         }
@@ -110,6 +126,8 @@ namespace NINA.Plugin.PrometheusExporter
         public override Task Teardown()
         {
             ExporterOptions.PropertyChanged -= OnOptionsChanged;
+            ExporterOptions.ApplyServerRequested -= OnApplyServerRequested;
+            _server.StatusChanged -= OnServerStatusChanged;
             _server.Stop();
             ExporterOptions.ServerStatus = _server.Status;
             foreach (var c in AllCollectors())
@@ -136,18 +154,17 @@ namespace NINA.Plugin.PrometheusExporter
             yield return _flat;
             yield return _safety;
             yield return _weather;
+            yield return _switch;
         }
 
         private void OnOptionsChanged(object? sender, PropertyChangedEventArgs e)
         {
             switch (e.PropertyName)
             {
-                case nameof(PrometheusExporterOptions.Port):
-                case nameof(PrometheusExporterOptions.BindAddress):
-                    _server.Restart(ExporterOptions.BindAddress, ExporterOptions.Port);
-                    ExporterOptions.ServerStatus = _server.Status;
-                    Logger.Info($"PrometheusExporter: server restarted — {_server.Status}");
-                    break;
+                // Port/BindAddress changes do NOT auto-restart the server. The user must click
+                // "Apply" in the Options panel to commit them — see OnApplyServerRequested. This
+                // avoids per-keystroke server churn and lets us surface real bind failures from
+                // a single deliberate attempt.
                 case nameof(PrometheusExporterOptions.SequencePollIntervalSeconds):
                     _sequence.RestartTimer(ExporterOptions.SequencePollIntervalSeconds);
                     Logger.Info($"PrometheusExporter: sequence poll interval -> {ExporterOptions.SequencePollIntervalSeconds}s");

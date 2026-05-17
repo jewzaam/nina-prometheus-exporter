@@ -14,14 +14,14 @@ namespace NINA.Plugin.PrometheusExporter
         public MetricFactory(IProfileService profileService)
         {
             _profileService = profileService;
-            _hostName = Environment.MachineName ?? "unknown";
+            _hostName = Environment.MachineName ?? Constants.Unknown;
         }
 
-        public string ProfileName => _profileService?.ActiveProfile?.Name ?? "unknown";
+        public string ProfileName => _profileService?.ActiveProfile?.Name ?? Constants.Unknown;
         public string HostName => _hostName;
 
         public string[] LabelNames(params string[] extra) =>
-            new[] { "profile_name", "host_name" }.Concat(extra).ToArray();
+            new[] { Constants.LabelProfileName, Constants.LabelHostName }.Concat(extra).ToArray();
 
         public string[] LabelValues(params string[] extra) =>
             new[] { ProfileName, _hostName }.Concat(extra).ToArray();

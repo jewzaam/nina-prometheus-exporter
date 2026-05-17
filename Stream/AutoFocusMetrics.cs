@@ -44,15 +44,15 @@ namespace NINA.Plugin.PrometheusExporter.Stream
 
             var ln = _factory.LabelNames();
             _running = Metrics.CreateGauge("nina_autofocus_running", "1 while an autofocus run is in progress, else 0", new GaugeConfiguration { LabelNames = ln });
-            _successes = Metrics.CreateCounter("nina_autofocus_success_total", "Count of successful autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames("filter") });
-            _failures = Metrics.CreateCounter("nina_autofocus_failure_total", "Count of failed autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames("reason") });
+            _successes = Metrics.CreateCounter("nina_autofocus_success_total", "Count of successful autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilter) });
+            _failures = Metrics.CreateCounter("nina_autofocus_failure_total", "Count of failed autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelReason) });
             _rsquares = Metrics.CreateGauge("nina_autofocus_rsquares", "R-squared of fit type for last autofocus report",
                 new GaugeConfiguration
                 {
-                    LabelNames = _factory.LabelNames("filter", "method", "fitting", "backlash_in", "backlash_out", "backlash_model", "type")
+                    LabelNames = _factory.LabelNames(Constants.LabelFilter, Constants.LabelMethod, Constants.LabelFitting, Constants.LabelBacklashIn, Constants.LabelBacklashOut, Constants.LabelBacklashModel, Constants.LabelFitType)
                 });
 
-            var rpt = _factory.LabelNames("filter");
+            var rpt = _factory.LabelNames(Constants.LabelFilter);
             _finalHfr = Metrics.CreateGauge("nina_autofocus_final_hfr", "Final HFR achieved by last autofocus run", new GaugeConfiguration { LabelNames = rpt });
             _duration = Metrics.CreateGauge("nina_autofocus_duration_seconds", "Wall-clock duration of last autofocus run in seconds", new GaugeConfiguration { LabelNames = rpt });
             _initialPosition = Metrics.CreateGauge("nina_autofocus_initial_position", "Focuser position at start of last autofocus run (steps)", new GaugeConfiguration { LabelNames = rpt });
@@ -62,8 +62,8 @@ namespace NINA.Plugin.PrometheusExporter.Stream
 
             _sm = new AutoFocusStateMachine(
                 onRunningChanged: r => _running.WithLabels(_factory.LabelValues()).Set(r ? 1 : 0),
-                onSuccess: f => _successes.WithLabels(_factory.LabelValues(f ?? "unknown")).Inc(),
-                onFailure: r => _failures.WithLabels(_factory.LabelValues(r ?? "unknown")).Inc());
+                onSuccess: f => _successes.WithLabels(_factory.LabelValues(f ?? Constants.Unknown)).Inc(),
+                onFailure: r => _failures.WithLabels(_factory.LabelValues(r ?? Constants.Unknown)).Inc());
 
             _debounce = new Timer(_ => ParsePending(), null, Timeout.Infinite, Timeout.Infinite);
         }
@@ -89,7 +89,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
 
         public void UpdateEndAutoFocusRun(AutoFocusInfo info)
         {
-            _sm.End(info?.Filter ?? "unknown");
+            _sm.End(info?.Filter ?? Constants.Unknown);
             _timeoutTimer?.Dispose();
             _timeoutTimer = null;
         }
@@ -109,10 +109,10 @@ namespace NINA.Plugin.PrometheusExporter.Stream
 
         private void StartWatcher()
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NINA", "AutoFocus");
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Constants.NinaAutoFocusSubdir);
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            _watcher = new FileSystemWatcher(dir, "*.json")
+            _watcher = new FileSystemWatcher(dir, Constants.AutoFocusJsonFilter)
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
                 IncludeSubdirectories = false,
@@ -125,7 +125,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
         private void OnFileEvent(object sender, FileSystemEventArgs e)
         {
             _pendingPath = e.FullPath;
-            _debounce.Change(200, Timeout.Infinite);
+            _debounce.Change(Constants.AutoFocusWatcherDebounceMs, Timeout.Infinite);
         }
 
         private void ParsePending()

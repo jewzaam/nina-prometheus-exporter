@@ -7,7 +7,7 @@ TEST_PROJECT     ?= tests/NINA.Plugin.PrometheusExporter.Tests.csproj
 DOTNET           ?= C:\Program Files\dotnet\dotnet.exe
 PWSH             ?= powershell -NoProfile -ExecutionPolicy Bypass -File
 
-.PHONY: help check clean format install install-dev uninstall run-nina \
+.PHONY: help check clean format install install-dev uninstall run-nina kill-nina \
         build-debug build-release build-package \
         test-env test-unit test-format restore
 
@@ -31,7 +31,10 @@ restore:  ## dotnet restore (NuGet packages)
 install: build-release  ## Build Release + copy DLLs to NINA Plugins dir
 	$(PWSH) scripts/install.ps1
 
-install-dev: install run-nina  ## install + restart NINA for plugin reload
+install-dev: kill-nina install run-nina  ## kill NINA, install, relaunch (avoids file-lock fight)
+
+kill-nina:  ## Stop any running NINA process so its DLL is free to overwrite
+	$(PWSH) scripts/kill-nina.ps1
 
 uninstall:  ## Remove the plugin install directory
 	$(PWSH) scripts/uninstall.ps1

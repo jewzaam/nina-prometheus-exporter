@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release.
-- `/metrics` endpoint on `http://0.0.0.0:9876` (configurable), served via EmbedIO (no `netsh urlacl` required for LAN binds).
+- `/metrics` endpoint on `http://127.0.0.1:9876` by default (configurable), served via EmbedIO (no `netsh urlacl` required if bound to a LAN IP).
 - Equipment connection gauges: `nina_equipment{type=...}` for camera, mount, focuser, filterwheel, guider, dome, rotator, flat_device, safety_monitor, weather, switch.
 - Sequence status: `nina_status{category,item}` gauge + `nina_status_count_started_total` / `nina_status_count_completed_total` counters, driven by a 1-second poll of running items.
 - Per-exposure metrics from `ImageSaved`: `nina_exposure_total{exposure_time_s,filter,gain,offset,binning}`, `nina_detect_hfr`, `nina_detect_stars`, `nina_detect_rms_arcsec`, `nina_detect_camera_temperature_celsius`, `nina_image_{mean,median,stdev,mad,min_adu,max_adu,hfr_stdev}`.

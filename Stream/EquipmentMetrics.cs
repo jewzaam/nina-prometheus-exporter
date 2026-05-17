@@ -51,22 +51,22 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             _gauge = Metrics.CreateGauge(
                 "nina_equipment",
                 "1 if equipment of the given type is connected, else 0",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames("type") });
+                new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelType) });
         }
 
         public void Subscribe()
         {
-            Wire(_camera, "camera");
-            Wire(_telescope, "telescope");
-            Wire(_focuser, "focuser");
-            Wire(_filterWheel, "filterwheel");
-            Wire(_guider, "guider");
-            Wire(_dome, "dome");
-            Wire(_rotator, "rotator");
-            Wire(_flat, "flat_device");
-            Wire(_safety, "safety_monitor");
-            Wire(_weather, "weather");
-            Wire(_switch, "switch");
+            Wire(_camera, Constants.TypeCamera);
+            Wire(_telescope, Constants.TypeTelescope);
+            Wire(_focuser, Constants.TypeFocuser);
+            Wire(_filterWheel, Constants.TypeFilterWheel);
+            Wire(_guider, Constants.TypeGuider);
+            Wire(_dome, Constants.TypeDome);
+            Wire(_rotator, Constants.TypeRotator);
+            Wire(_flat, Constants.TypeFlatDevice);
+            Wire(_safety, Constants.TypeSafetyMonitor);
+            Wire(_weather, Constants.TypeWeather);
+            Wire(_switch, Constants.TypeSwitch);
         }
 
         private void Wire<THandler, TConsumer, TInfo>(

@@ -16,19 +16,22 @@ namespace NINA.Plugin.PrometheusExporter.Stream
         private readonly IFocuserMediator _mediator;
         private readonly Gauge _position;
         private readonly Gauge _temperature;
+        private readonly Gauge _tempComp;
+        private readonly Gauge _tempCompAvailable;
+        private readonly Gauge _moving;
+        private readonly Gauge _settling;
 
         public FocuserMetrics(MetricFactory factory, IFocuserMediator mediator)
         {
             _factory = factory;
             _mediator = mediator;
-            _position = Metrics.CreateGauge(
-                "nina_focuser_position",
-                "Focuser position (steps)",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-            _temperature = Metrics.CreateGauge(
-                "nina_focuser_temperature_celsius",
-                "Focuser ambient temperature in degrees Celsius",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
+            var ln = _factory.LabelNames();
+            _position = Metrics.CreateGauge("nina_focuser_position", "Focuser position (steps)", new GaugeConfiguration { LabelNames = ln });
+            _temperature = Metrics.CreateGauge("nina_focuser_temperature_celsius", "Focuser ambient temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
+            _tempComp = Metrics.CreateGauge("nina_focuser_temp_comp", "1 if temperature compensation is enabled, else 0", new GaugeConfiguration { LabelNames = ln });
+            _tempCompAvailable = Metrics.CreateGauge("nina_focuser_temp_comp_available", "1 if the driver supports temperature compensation, else 0", new GaugeConfiguration { LabelNames = ln });
+            _moving = Metrics.CreateGauge("nina_focuser_moving", "1 if focuser is currently moving, else 0", new GaugeConfiguration { LabelNames = ln });
+            _settling = Metrics.CreateGauge("nina_focuser_settling", "1 if focuser is settling after a move, else 0", new GaugeConfiguration { LabelNames = ln });
         }
 
         public void Subscribe() => _mediator.RegisterConsumer(this);
@@ -40,6 +43,10 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             _position.WithLabels(lv).Set(info.Position);
             if (!double.IsNaN(info.Temperature))
                 _temperature.WithLabels(lv).Set(info.Temperature);
+            _tempComp.WithLabels(lv).Set(info.TempComp ? 1 : 0);
+            _tempCompAvailable.WithLabels(lv).Set(info.TempCompAvailable ? 1 : 0);
+            _moving.WithLabels(lv).Set(info.IsMoving ? 1 : 0);
+            _settling.WithLabels(lv).Set(info.IsSettling ? 1 : 0);
         }
 
         // No-op IFocuserConsumer callbacks owned by AutoFocusMetrics:

@@ -20,7 +20,7 @@ namespace NINA.Plugin.PrometheusExporter.Stream
         private readonly Gauge _hfrStdev;
 
         private static readonly string[] ExposureLabels =
-            { "exposure_time_s", "filter", "gain", "offset", "binning" };
+            { Constants.LabelExposureTimeSeconds, Constants.LabelFilter, Constants.LabelGain, Constants.LabelOffset, Constants.LabelBinning };
 
         public ImageMetrics(MetricFactory factory, IImageSaveMediator mediator)
         {
@@ -56,11 +56,11 @@ namespace NINA.Plugin.PrometheusExporter.Stream
             var image = args.MetaData?.Image;
             var camera = args.MetaData?.Camera;
             return _factory.LabelValues(
-                image == null || double.IsNaN(image.ExposureTime) ? "unknown" : image.ExposureTime.ToString("F2"),
-                args.Filter ?? "unknown",
-                camera == null ? "unknown" : camera.Gain.ToString(),
-                camera == null ? "unknown" : camera.Offset.ToString(),
-                string.IsNullOrEmpty(image?.Binning) ? "unknown" : image.Binning);
+                image == null || double.IsNaN(image.ExposureTime) ? Constants.Unknown : image.ExposureTime.ToString("F2"),
+                args.Filter ?? Constants.Unknown,
+                camera == null ? Constants.Unknown : camera.Gain.ToString(),
+                camera == null ? Constants.Unknown : camera.Offset.ToString(),
+                string.IsNullOrEmpty(image?.Binning) ? Constants.Unknown : image.Binning);
         }
 
         private void OnImageSaved(object? sender, ImageSavedEventArgs args)
