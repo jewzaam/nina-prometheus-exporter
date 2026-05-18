@@ -5,102 +5,101 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class EquipmentMetrics : IMetricCollector
 {
+    private readonly MetricFactory _factory;
+    private readonly Gauge _gauge;
 
-    internal sealed class EquipmentMetrics : IMetricCollector
+    private readonly ICameraMediator _camera;
+    private readonly ITelescopeMediator _telescope;
+    private readonly IFocuserMediator _focuser;
+    private readonly IFilterWheelMediator _filterWheel;
+    private readonly IGuiderMediator _guider;
+    private readonly IDomeMediator _dome;
+    private readonly IRotatorMediator _rotator;
+    private readonly IFlatDeviceMediator _flat;
+    private readonly ISafetyMonitorMediator _safety;
+    private readonly IWeatherDataMediator _weather;
+    private readonly ISwitchMediator _switch;
+
+    // Stored handlers so Dispose can unsubscribe.
+    private readonly List<Action> _unsubs = new();
+
+    public EquipmentMetrics(
+        MetricFactory factory,
+        ICameraMediator camera,
+        ITelescopeMediator telescope,
+        IFocuserMediator focuser,
+        IFilterWheelMediator filterWheel,
+        IGuiderMediator guider,
+        IDomeMediator dome,
+        IRotatorMediator rotator,
+        IFlatDeviceMediator flat,
+        ISafetyMonitorMediator safety,
+        IWeatherDataMediator weather,
+        ISwitchMediator @switch)
     {
-        private readonly MetricFactory _factory;
-        private readonly Gauge _gauge;
+        _factory = factory;
+        _camera = camera; _telescope = telescope; _focuser = focuser;
+        _filterWheel = filterWheel; _guider = guider; _dome = dome;
+        _rotator = rotator; _flat = flat; _safety = safety;
+        _weather = weather; _switch = @switch;
 
-        private readonly ICameraMediator _camera;
-        private readonly ITelescopeMediator _telescope;
-        private readonly IFocuserMediator _focuser;
-        private readonly IFilterWheelMediator _filterWheel;
-        private readonly IGuiderMediator _guider;
-        private readonly IDomeMediator _dome;
-        private readonly IRotatorMediator _rotator;
-        private readonly IFlatDeviceMediator _flat;
-        private readonly ISafetyMonitorMediator _safety;
-        private readonly IWeatherDataMediator _weather;
-        private readonly ISwitchMediator _switch;
+        _gauge = Metrics.CreateGauge(
+            "nina_equipment",
+            "1 if equipment of the given type is connected, else 0",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelType) });
+    }
 
-        // Stored handlers so Dispose can unsubscribe.
-        private readonly List<Action> _unsubs = new();
+    public void Subscribe()
+    {
+        Wire(_camera, Constants.TypeCamera);
+        Wire(_telescope, Constants.TypeTelescope);
+        Wire(_focuser, Constants.TypeFocuser);
+        Wire(_filterWheel, Constants.TypeFilterWheel);
+        Wire(_guider, Constants.TypeGuider);
+        Wire(_dome, Constants.TypeDome);
+        Wire(_rotator, Constants.TypeRotator);
+        Wire(_flat, Constants.TypeFlatDevice);
+        Wire(_safety, Constants.TypeSafetyMonitor);
+        Wire(_weather, Constants.TypeWeather);
+        Wire(_switch, Constants.TypeSwitch);
+    }
 
-        public EquipmentMetrics(
-            MetricFactory factory,
-            ICameraMediator camera,
-            ITelescopeMediator telescope,
-            IFocuserMediator focuser,
-            IFilterWheelMediator filterWheel,
-            IGuiderMediator guider,
-            IDomeMediator dome,
-            IRotatorMediator rotator,
-            IFlatDeviceMediator flat,
-            ISafetyMonitorMediator safety,
-            IWeatherDataMediator weather,
-            ISwitchMediator @switch)
+    private void Wire<THandler, TConsumer, TInfo>(
+        IDeviceMediator<THandler, TConsumer, TInfo> mediator,
+        string type)
+        where THandler : NINA.Equipment.Interfaces.ViewModel.IDeviceVM<TInfo>
+        where TConsumer : NINA.Equipment.Interfaces.Mediator.IDeviceConsumer<TInfo>
+    {
+
+        Func<object, EventArgs, Task> onConnected = (_, __) =>
         {
-            _factory = factory;
-            _camera = camera; _telescope = telescope; _focuser = focuser;
-            _filterWheel = filterWheel; _guider = guider; _dome = dome;
-            _rotator = rotator; _flat = flat; _safety = safety;
-            _weather = weather; _switch = @switch;
-
-            _gauge = Metrics.CreateGauge(
-                "nina_equipment",
-                "1 if equipment of the given type is connected, else 0",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelType) });
-        }
-
-        public void Subscribe()
+            _gauge.WithLabels(_factory.LabelValues(type)).Set(1);
+            return Task.CompletedTask;
+        };
+        Func<object, EventArgs, Task> onDisconnected = (_, __) =>
         {
-            Wire(_camera, Constants.TypeCamera);
-            Wire(_telescope, Constants.TypeTelescope);
-            Wire(_focuser, Constants.TypeFocuser);
-            Wire(_filterWheel, Constants.TypeFilterWheel);
-            Wire(_guider, Constants.TypeGuider);
-            Wire(_dome, Constants.TypeDome);
-            Wire(_rotator, Constants.TypeRotator);
-            Wire(_flat, Constants.TypeFlatDevice);
-            Wire(_safety, Constants.TypeSafetyMonitor);
-            Wire(_weather, Constants.TypeWeather);
-            Wire(_switch, Constants.TypeSwitch);
-        }
+            _gauge.WithLabels(_factory.LabelValues(type)).Set(0);
+            return Task.CompletedTask;
+        };
 
-        private void Wire<THandler, TConsumer, TInfo>(
-            IDeviceMediator<THandler, TConsumer, TInfo> mediator,
-            string type)
-            where THandler : NINA.Equipment.Interfaces.ViewModel.IDeviceVM<TInfo>
-            where TConsumer : NINA.Equipment.Interfaces.Mediator.IDeviceConsumer<TInfo>
+        mediator.Connected += onConnected;
+        mediator.Disconnected += onDisconnected;
+        _unsubs.Add(() => mediator.Connected -= onConnected);
+        _unsubs.Add(() => mediator.Disconnected -= onDisconnected);
+    }
+
+    public void Dispose()
+    {
+        foreach (var u in _unsubs)
         {
-
-            Func<object, EventArgs, Task> onConnected = (_, __) =>
-            {
-                _gauge.WithLabels(_factory.LabelValues(type)).Set(1);
-                return Task.CompletedTask;
-            };
-            Func<object, EventArgs, Task> onDisconnected = (_, __) =>
-            {
-                _gauge.WithLabels(_factory.LabelValues(type)).Set(0);
-                return Task.CompletedTask;
-            };
-
-            mediator.Connected += onConnected;
-            mediator.Disconnected += onDisconnected;
-            _unsubs.Add(() => mediator.Connected -= onConnected);
-            _unsubs.Add(() => mediator.Disconnected -= onDisconnected);
+            try { u(); } catch { /* swallow on shutdown */ }
         }
-
-        public void Dispose()
-        {
-            foreach (var u in _unsubs)
-            {
-                try { u(); } catch { /* swallow on shutdown */ }
-            }
-            _unsubs.Clear();
-            GC.SuppressFinalize(this);
-        }
+        _unsubs.Clear();
+        GC.SuppressFinalize(this);
     }
 }

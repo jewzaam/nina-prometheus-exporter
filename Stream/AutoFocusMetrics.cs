@@ -8,168 +8,169 @@ using System;
 using System.IO;
 using System.Threading;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class AutoFocusMetrics : IMetricCollector, IFocuserConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IFocuserMediator _mediator;
+    private readonly PrometheusExporterOptions _options;
 
-    internal sealed class AutoFocusMetrics : IMetricCollector, IFocuserConsumer
+    private readonly Gauge _running;
+    private readonly Counter _successes;
+    private readonly Counter _failures;
+    private readonly Gauge _rsquares;
+    // Per-report metrics (populated from JSON report on file watch)
+    private readonly Gauge _finalHfr;
+    private readonly Gauge _duration;
+    private readonly Gauge _initialPosition;
+    private readonly Gauge _initialHfr;
+    private readonly Gauge _calculatedPosition;
+    private readonly Gauge _calculatedHfr;
+
+    private readonly AutoFocusStateMachine _sm;
+    private Timer? _timeoutTimer;
+
+    private FileSystemWatcher? _watcher;
+    private readonly Timer _debounce;
+    private string? _pendingPath;
+
+    public AutoFocusMetrics(MetricFactory factory, IFocuserMediator mediator, PrometheusExporterOptions options)
     {
-        private readonly MetricFactory _factory;
-        private readonly IFocuserMediator _mediator;
-        private readonly PrometheusExporterOptions _options;
+        _factory = factory;
+        _mediator = mediator;
+        _options = options;
 
-        private readonly Gauge _running;
-        private readonly Counter _successes;
-        private readonly Counter _failures;
-        private readonly Gauge _rsquares;
-        // Per-report metrics (populated from JSON report on file watch)
-        private readonly Gauge _finalHfr;
-        private readonly Gauge _duration;
-        private readonly Gauge _initialPosition;
-        private readonly Gauge _initialHfr;
-        private readonly Gauge _calculatedPosition;
-        private readonly Gauge _calculatedHfr;
-
-        private readonly AutoFocusStateMachine _sm;
-        private Timer? _timeoutTimer;
-
-        private FileSystemWatcher? _watcher;
-        private readonly Timer _debounce;
-        private string? _pendingPath;
-
-        public AutoFocusMetrics(MetricFactory factory, IFocuserMediator mediator, PrometheusExporterOptions options)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            _options = options;
-
-            var ln = _factory.LabelNames();
-            _running = Metrics.CreateGauge("nina_autofocus_running", "1 while an autofocus run is in progress, else 0", new GaugeConfiguration { LabelNames = ln });
-            _successes = Metrics.CreateCounter("nina_autofocus_success_total", "Count of successful autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilter) });
-            _failures = Metrics.CreateCounter("nina_autofocus_failure_total", "Count of failed autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelReason) });
-            _rsquares = Metrics.CreateGauge("nina_autofocus_rsquares", "R-squared of fit type for last autofocus report",
-                new GaugeConfiguration
-                {
-                    LabelNames = _factory.LabelNames(Constants.LabelFilter, Constants.LabelMethod, Constants.LabelFitting, Constants.LabelBacklashIn, Constants.LabelBacklashOut, Constants.LabelBacklashModel, Constants.LabelFitType)
-                });
-
-            var rpt = _factory.LabelNames(Constants.LabelFilter);
-            _finalHfr = Metrics.CreateGauge("nina_autofocus_final_hfr", "Final HFR achieved by last autofocus run", new GaugeConfiguration { LabelNames = rpt });
-            _duration = Metrics.CreateGauge("nina_autofocus_duration_seconds", "Wall-clock duration of last autofocus run in seconds", new GaugeConfiguration { LabelNames = rpt });
-            _initialPosition = Metrics.CreateGauge("nina_autofocus_initial_position", "Focuser position at start of last autofocus run (steps)", new GaugeConfiguration { LabelNames = rpt });
-            _initialHfr = Metrics.CreateGauge("nina_autofocus_initial_hfr", "HFR at start of last autofocus run", new GaugeConfiguration { LabelNames = rpt });
-            _calculatedPosition = Metrics.CreateGauge("nina_autofocus_calculated_position", "Focuser position chosen by last autofocus run (steps)", new GaugeConfiguration { LabelNames = rpt });
-            _calculatedHfr = Metrics.CreateGauge("nina_autofocus_calculated_hfr", "HFR at chosen focuser position from last autofocus run", new GaugeConfiguration { LabelNames = rpt });
-
-            _sm = new AutoFocusStateMachine(
-                onRunningChanged: r => _running.WithLabels(_factory.LabelValues()).Set(r ? 1 : 0),
-                onSuccess: f => _successes.WithLabels(_factory.LabelValues(f ?? Constants.Unknown)).Inc(),
-                onFailure: r => _failures.WithLabels(_factory.LabelValues(r ?? Constants.Unknown)).Inc());
-
-            _debounce = new Timer(_ => ParsePending(), null, Timeout.Infinite, Timeout.Infinite);
-        }
-
-        public void Subscribe()
-        {
-            _mediator.RegisterConsumer(this);
-            StartWatcher();
-        }
-
-        // === IFocuserConsumer state-machine callbacks ===
-
-        public void AutoFocusRunStarting()
-        {
-            _sm.Start();
-            if (_options.AfTimeoutMinutes > 0)
+        var ln = _factory.LabelNames();
+        _running = Metrics.CreateGauge("nina_autofocus_running", "1 while an autofocus run is in progress, else 0", new GaugeConfiguration { LabelNames = ln });
+        _successes = Metrics.CreateCounter("nina_autofocus_success_total", "Count of successful autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilter) });
+        _failures = Metrics.CreateCounter("nina_autofocus_failure_total", "Count of failed autofocus runs", new CounterConfiguration { LabelNames = _factory.LabelNames(Constants.LabelReason) });
+        _rsquares = Metrics.CreateGauge("nina_autofocus_rsquares", "R-squared of fit type for last autofocus report",
+            new GaugeConfiguration
             {
-                var ms = (long)TimeSpan.FromMinutes(_options.AfTimeoutMinutes).TotalMilliseconds;
-                _timeoutTimer?.Dispose();
-                _timeoutTimer = new Timer(_ => OnTimeout(), null, ms, Timeout.Infinite);
-            }
-        }
+                LabelNames = _factory.LabelNames(Constants.LabelFilter, Constants.LabelMethod, Constants.LabelFitting, Constants.LabelBacklashIn, Constants.LabelBacklashOut, Constants.LabelBacklashModel, Constants.LabelFitType)
+            });
 
-        public void UpdateEndAutoFocusRun(AutoFocusInfo info)
+        var rpt = _factory.LabelNames(Constants.LabelFilter);
+        _finalHfr = Metrics.CreateGauge("nina_autofocus_final_hfr", "Final HFR achieved by last autofocus run", new GaugeConfiguration { LabelNames = rpt });
+        _duration = Metrics.CreateGauge("nina_autofocus_duration_seconds", "Wall-clock duration of last autofocus run in seconds", new GaugeConfiguration { LabelNames = rpt });
+        _initialPosition = Metrics.CreateGauge("nina_autofocus_initial_position", "Focuser position at start of last autofocus run (steps)", new GaugeConfiguration { LabelNames = rpt });
+        _initialHfr = Metrics.CreateGauge("nina_autofocus_initial_hfr", "HFR at start of last autofocus run", new GaugeConfiguration { LabelNames = rpt });
+        _calculatedPosition = Metrics.CreateGauge("nina_autofocus_calculated_position", "Focuser position chosen by last autofocus run (steps)", new GaugeConfiguration { LabelNames = rpt });
+        _calculatedHfr = Metrics.CreateGauge("nina_autofocus_calculated_hfr", "HFR at chosen focuser position from last autofocus run", new GaugeConfiguration { LabelNames = rpt });
+
+        _sm = new AutoFocusStateMachine(
+            onRunningChanged: r => _running.WithLabels(_factory.LabelValues()).Set(r ? 1 : 0),
+            onSuccess: f => _successes.WithLabels(_factory.LabelValues(f ?? Constants.Unknown)).Inc(),
+            onFailure: r => _failures.WithLabels(_factory.LabelValues(r ?? Constants.Unknown)).Inc());
+
+        _debounce = new Timer(_ => ParsePending(), null, Timeout.Infinite, Timeout.Infinite);
+    }
+
+    public void Subscribe()
+    {
+        _mediator.RegisterConsumer(this);
+        StartWatcher();
+    }
+
+    // === IFocuserConsumer state-machine callbacks ===
+
+    public void AutoFocusRunStarting()
+    {
+        _sm.Start();
+        if (_options.AfTimeoutMinutes > 0)
         {
-            _sm.End(info?.Filter ?? Constants.Unknown);
+            var ms = (long)TimeSpan.FromMinutes(_options.AfTimeoutMinutes).TotalMilliseconds;
             _timeoutTimer?.Dispose();
-            _timeoutTimer = null;
+            _timeoutTimer = new Timer(_ => OnTimeout(), null, ms, Timeout.Infinite);
         }
+    }
 
-        private void OnTimeout()
+    public void UpdateEndAutoFocusRun(AutoFocusInfo info)
+    {
+        _sm.End(info?.Filter ?? Constants.Unknown);
+        _timeoutTimer?.Dispose();
+        _timeoutTimer = null;
+    }
+
+    private void OnTimeout()
+    {
+        _sm.Timeout();
+        Logger.Info($"AutoFocusMetrics: timeout after {_options.AfTimeoutMinutes} min");
+    }
+
+    // No-op IFocuserConsumer callbacks owned by FocuserMetrics:
+    public void UpdateDeviceInfo(FocuserInfo info) { }
+    public void UpdateUserFocused(FocuserInfo info) { }
+    public void NewAutoFocusPoint(DataPoint dataPoint) { }
+
+    // === JSON watcher ===
+
+    private void StartWatcher()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Constants.NinaAutoFocusSubdir);
+        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+        _watcher = new FileSystemWatcher(dir, Constants.AutoFocusJsonFilter)
         {
-            _sm.Timeout();
-            Logger.Info($"AutoFocusMetrics: timeout after {_options.AfTimeoutMinutes} min");
-        }
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
+            IncludeSubdirectories = false,
+            EnableRaisingEvents = true
+        };
+        _watcher.Created += OnFileEvent;
+        _watcher.Changed += OnFileEvent;
+    }
 
-        // No-op IFocuserConsumer callbacks owned by FocuserMetrics:
-        public void UpdateDeviceInfo(FocuserInfo info) { }
-        public void UpdateUserFocused(FocuserInfo info) { }
-        public void NewAutoFocusPoint(DataPoint dataPoint) { }
+    private void OnFileEvent(object sender, FileSystemEventArgs e)
+    {
+        _pendingPath = e.FullPath;
+        _debounce.Change(Constants.AutoFocusWatcherDebounceMs, Timeout.Infinite);
+    }
 
-        // === JSON watcher ===
-
-        private void StartWatcher()
+    private void ParsePending()
+    {
+        var path = _pendingPath;
+        if (path == null || !File.Exists(path)) return;
+        try
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Constants.NinaAutoFocusSubdir);
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-
-            _watcher = new FileSystemWatcher(dir, Constants.AutoFocusJsonFilter)
+            var report = AutoFocusReportParser.ParseFile(path);
+            foreach (var kv in report.RSquares)
             {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
-                IncludeSubdirectories = false,
-                EnableRaisingEvents = true
-            };
-            _watcher.Created += OnFileEvent;
-            _watcher.Changed += OnFileEvent;
-        }
-
-        private void OnFileEvent(object sender, FileSystemEventArgs e)
-        {
-            _pendingPath = e.FullPath;
-            _debounce.Change(Constants.AutoFocusWatcherDebounceMs, Timeout.Infinite);
-        }
-
-        private void ParsePending()
-        {
-            var path = _pendingPath;
-            if (path == null || !File.Exists(path)) return;
-            try
-            {
-                var report = AutoFocusReportParser.ParseFile(path);
-                foreach (var kv in report.RSquares)
-                {
-                    _rsquares.WithLabels(_factory.LabelValues(
-                        report.Filter,
-                        report.Method,
-                        report.Fitting,
-                        report.BacklashIn.ToString(),
-                        report.BacklashOut.ToString(),
-                        report.BacklashModel,
-                        kv.Key
-                    )).Set(kv.Value);
-                }
-
-                var lv = _factory.LabelValues(report.Filter);
-                void SetIf(Gauge g, double v) { if (!double.IsNaN(v)) g.WithLabels(lv).Set(v); }
-                SetIf(_finalHfr, report.FinalHfr);
-                SetIf(_duration, report.DurationSeconds);
-                SetIf(_initialPosition, report.InitialPosition);
-                SetIf(_initialHfr, report.InitialHfr);
-                SetIf(_calculatedPosition, report.CalculatedPosition);
-                SetIf(_calculatedHfr, report.CalculatedHfr);
+                _rsquares.WithLabels(_factory.LabelValues(
+                    report.Filter,
+                    report.Method,
+                    report.Fitting,
+                    report.BacklashIn.ToString(),
+                    report.BacklashOut.ToString(),
+                    report.BacklashModel,
+                    kv.Key
+                )).Set(kv.Value);
             }
-            catch (Exception ex)
-            {
-                Logger.Debug($"AutoFocusMetrics: parse failed for {path}: {ex.Message}");
-            }
-        }
 
-        public void Dispose()
-        {
-            _watcher?.Dispose();
-            _debounce.Dispose();
-            _timeoutTimer?.Dispose();
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
+            var lv = _factory.LabelValues(report.Filter);
+            void SetIf(Gauge g, double v) { if (!double.IsNaN(v)) g.WithLabels(lv).Set(v); }
+            SetIf(_finalHfr, report.FinalHfr);
+            SetIf(_duration, report.DurationSeconds);
+            SetIf(_initialPosition, report.InitialPosition);
+            SetIf(_initialHfr, report.InitialHfr);
+            SetIf(_calculatedPosition, report.CalculatedPosition);
+            SetIf(_calculatedHfr, report.CalculatedHfr);
         }
+        catch (Exception ex)
+        {
+            // NINA's Logger.Debug has no exception overload. Interpolate {ex} (full ToString
+            // including stack) rather than {ex.Message} so the stack isn't lost at Debug level.
+            Logger.Debug($"AutoFocusMetrics: parse failed for {path}: {ex}");
+        }
+    }
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _debounce.Dispose();
+        _timeoutTimer?.Dispose();
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

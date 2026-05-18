@@ -5,96 +5,115 @@ using NINA.Profile.Interfaces;
 using System;
 using System.Windows.Input;
 
-namespace NINA.Plugin.PrometheusExporter
+namespace NINA.Plugin.PrometheusExporter;
+
+
+public partial class PrometheusExporterOptions : BaseINPC
 {
+    private readonly IProfileService _profileService;
+    private readonly PluginOptionsAccessor _accessor;
 
-    public partial class PrometheusExporterOptions : BaseINPC
+    // Raised when the user clicks Apply in the Options panel.
+    // The plugin owns the actual server restart; this is just the trigger.
+    public event EventHandler? ApplyServerRequested;
+
+    private readonly CommunityToolkit.Mvvm.Input.RelayCommand _applyServerCommand;
+    public ICommand ApplyServerCommand => _applyServerCommand;
+
+    // Last (port, bind) the server was asked to bind to. Used to decide whether Apply has anything to do.
+    // Initialized lazily on the first MarkApplied() call from the plugin.
+    private int? _appliedPort;
+    private string? _appliedBindAddress;
+
+    public bool HasPendingApply =>
+        _appliedPort is null
+        || _appliedBindAddress is null
+        || _appliedPort.Value != Port
+        || !string.Equals(_appliedBindAddress, BindAddress, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Called by the plugin after a Start/Restart attempt with the current Port/BindAddress.
+    /// Snapshots those as "the values the server tried to bind to" so HasPendingApply goes false
+    /// regardless of whether the bind itself succeeded — failed attempts also count as applied.
+    /// </summary>
+    public void MarkApplied()
     {
-        private readonly IProfileService _profileService;
-        private readonly PluginOptionsAccessor _accessor;
+        _appliedPort = Port;
+        _appliedBindAddress = BindAddress;
+        _applyServerCommand.NotifyCanExecuteChanged();
+    }
 
-        // Raised when the user clicks Apply in the Options panel.
-        // The plugin owns the actual server restart; this is just the trigger.
-        public event EventHandler? ApplyServerRequested;
+    public PrometheusExporterOptions(IProfileService profileService)
+    {
+        _profileService = profileService;
+        var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(PrometheusExporterPlugin))
+            ?? throw new InvalidOperationException("Plugin assembly GUID not found");
+        _accessor = new PluginOptionsAccessor(profileService, guid);
+        _applyServerCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(
+            execute: () => ApplyServerRequested?.Invoke(this, EventArgs.Empty),
+            canExecute: () => HasPendingApply);
+        // Per standards/dotnet/nina-plugin.md §7.3: when the active NINA profile switches,
+        // the persisted options change, so re-raise PropertyChanged for every persisted
+        // property to refresh the Options panel binding.
+        _profileService.ProfileChanged += OnProfileChanged;
+    }
 
-        private readonly CommunityToolkit.Mvvm.Input.RelayCommand _applyServerCommand;
-        public ICommand ApplyServerCommand => _applyServerCommand;
+    private void OnProfileChanged(object? sender, EventArgs e)
+    {
+        RaisePropertyChanged(nameof(Port));
+        RaisePropertyChanged(nameof(BindAddress));
+        RaisePropertyChanged(nameof(SequencePollIntervalSeconds));
+        RaisePropertyChanged(nameof(AfTimeoutMinutes));
+        // After a profile switch, the displayed values may differ from the running server's
+        // bind/port; recompute the Apply button enablement.
+        _applyServerCommand.NotifyCanExecuteChanged();
+    }
 
-        // Last (port, bind) the server was asked to bind to. Used to decide whether Apply has anything to do.
-        // Initialized lazily on the first MarkApplied() call from the plugin.
-        private int? _appliedPort;
-        private string? _appliedBindAddress;
+    public void DetachFromProfileService()
+    {
+        _profileService.ProfileChanged -= OnProfileChanged;
+    }
 
-        public bool HasPendingApply =>
-            _appliedPort is null
-            || _appliedBindAddress is null
-            || _appliedPort.Value != Port
-            || !string.Equals(_appliedBindAddress, BindAddress, StringComparison.Ordinal);
-
-        /// <summary>
-        /// Called by the plugin after a Start/Restart attempt with the current Port/BindAddress.
-        /// Snapshots those as "the values the server tried to bind to" so HasPendingApply goes false
-        /// regardless of whether the bind itself succeeded — failed attempts also count as applied.
-        /// </summary>
-        public void MarkApplied()
+    public int Port
+    {
+        get => _accessor.GetValueInt32(nameof(Port), Constants.DefaultPort);
+        set
         {
-            _appliedPort = Port;
-            _appliedBindAddress = BindAddress;
+            _accessor.SetValueInt32(nameof(Port), Clamp(value, Constants.PortMin, Constants.PortMax));
+            RaisePropertyChanged();
             _applyServerCommand.NotifyCanExecuteChanged();
         }
-
-        public PrometheusExporterOptions(IProfileService profileService)
-        {
-            _profileService = profileService;
-            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(PrometheusExporterPlugin))
-                ?? throw new InvalidOperationException("Plugin assembly GUID not found");
-            _accessor = new PluginOptionsAccessor(profileService, guid);
-            _applyServerCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(
-                execute: () => ApplyServerRequested?.Invoke(this, EventArgs.Empty),
-                canExecute: () => HasPendingApply);
-        }
-
-        public int Port
-        {
-            get => _accessor.GetValueInt32(nameof(Port), Constants.DefaultPort);
-            set
-            {
-                _accessor.SetValueInt32(nameof(Port), Clamp(value, Constants.PortMin, Constants.PortMax));
-                RaisePropertyChanged();
-                _applyServerCommand.NotifyCanExecuteChanged();
-            }
-        }
-
-        public string BindAddress
-        {
-            get => _accessor.GetValueString(nameof(BindAddress), Constants.DefaultBindAddress);
-            set
-            {
-                _accessor.SetValueString(nameof(BindAddress), string.IsNullOrWhiteSpace(value) ? Constants.DefaultBindAddress : value);
-                RaisePropertyChanged();
-                _applyServerCommand.NotifyCanExecuteChanged();
-            }
-        }
-
-        public int SequencePollIntervalSeconds
-        {
-            get => _accessor.GetValueInt32(nameof(SequencePollIntervalSeconds), Constants.DefaultSequencePollIntervalSeconds);
-            set { _accessor.SetValueInt32(nameof(SequencePollIntervalSeconds), Clamp(value, Constants.SequencePollSecondsMin, Constants.SequencePollSecondsMax)); RaisePropertyChanged(); }
-        }
-
-        public int AfTimeoutMinutes
-        {
-            get => _accessor.GetValueInt32(nameof(AfTimeoutMinutes), Constants.DefaultAfTimeoutMinutes);
-            set { _accessor.SetValueInt32(nameof(AfTimeoutMinutes), Clamp(value, Constants.AfTimeoutMinutesMin, Constants.AfTimeoutMinutesMax)); RaisePropertyChanged(); }
-        }
-
-        private string _serverStatus = Constants.StatusStopped;
-        public string ServerStatus
-        {
-            get => _serverStatus;
-            internal set { _serverStatus = value; RaisePropertyChanged(); }
-        }
-
-        private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
     }
+
+    public string BindAddress
+    {
+        get => _accessor.GetValueString(nameof(BindAddress), Constants.DefaultBindAddress);
+        set
+        {
+            _accessor.SetValueString(nameof(BindAddress), string.IsNullOrWhiteSpace(value) ? Constants.DefaultBindAddress : value);
+            RaisePropertyChanged();
+            _applyServerCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    public int SequencePollIntervalSeconds
+    {
+        get => _accessor.GetValueInt32(nameof(SequencePollIntervalSeconds), Constants.DefaultSequencePollIntervalSeconds);
+        set { _accessor.SetValueInt32(nameof(SequencePollIntervalSeconds), Clamp(value, Constants.SequencePollSecondsMin, Constants.SequencePollSecondsMax)); RaisePropertyChanged(); }
+    }
+
+    public int AfTimeoutMinutes
+    {
+        get => _accessor.GetValueInt32(nameof(AfTimeoutMinutes), Constants.DefaultAfTimeoutMinutes);
+        set { _accessor.SetValueInt32(nameof(AfTimeoutMinutes), Clamp(value, Constants.AfTimeoutMinutesMin, Constants.AfTimeoutMinutesMax)); RaisePropertyChanged(); }
+    }
+
+    private string _serverStatus = Constants.StatusStopped;
+    public string ServerStatus
+    {
+        get => _serverStatus;
+        internal set { _serverStatus = value; RaisePropertyChanged(); }
+    }
+
+    private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
 }

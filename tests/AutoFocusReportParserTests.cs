@@ -4,79 +4,87 @@ using System.IO;
 using System.Text.Json;
 using Xunit;
 
-namespace NINA.Plugin.PrometheusExporter.Tests {
+namespace NINA.Plugin.PrometheusExporter.Tests;
 
-    public class AutoFocusReportParserTests {
 
-        private static readonly string GoldenPath =
-            Path.Combine(Path.GetDirectoryName(typeof(AutoFocusReportParserTests).Assembly.Location)!,
-                         "golden", "autofocus-report.json");
+public class AutoFocusReportParserTests
+{
 
-        [Fact]
-        public void Parse_GoldenFile_PopulatesAllFields() {
-            Assert.True(File.Exists(GoldenPath), $"Golden file missing at {GoldenPath}");
-            var report = AutoFocusReportParser.ParseFile(GoldenPath);
-            Assert.Equal("L", report.Filter);
-            Assert.Equal("STARHFR", report.Method);
-            Assert.Equal("HYPERBOLIC", report.Fitting);
-            Assert.Equal(0, report.BacklashIn);
-            Assert.Equal(2000, report.BacklashOut);
-            Assert.Equal("OVERSHOOT", report.BacklashModel);
-            Assert.Equal(5.292140817103702, report.FinalHfr, 6);
-            // Duration "00:02:07.4969711" -> 127.4969711 seconds
-            Assert.Equal(127.4969711, report.DurationSeconds, 4);
-            Assert.Equal(13735.0, report.InitialPosition);
-            Assert.Equal(5.365780475729857, report.InitialHfr, 6);
-            Assert.Equal(13668.456686285463, report.CalculatedPosition, 6);
-            Assert.Equal(3.7754838009396274, report.CalculatedHfr, 6);
-            // RSquares.Quadratic is the string "NaN" in this report and is skipped by the parser.
-            Assert.False(report.RSquares.ContainsKey("Quadratic"));
-            Assert.Equal(0.9962441941095639, report.RSquares["Hyperbolic"], 6);
-            Assert.Equal(0.9995388291304703, report.RSquares["LeftTrend"], 6);
-            Assert.Equal(1.0, report.RSquares["RightTrend"], 6);
-        }
+    private static readonly string GoldenPath =
+        Path.Combine(Path.GetDirectoryName(typeof(AutoFocusReportParserTests).Assembly.Location)!,
+                     "golden", "autofocus-report.json");
 
-        [Fact]
-        public void Parse_MissingDuration_DurationIsNaN() {
-            var json = "{\"Filter\":\"L\"}";
-            using var doc = JsonDocument.Parse(json);
-            var report = AutoFocusReportParser.Parse(doc.RootElement);
-            Assert.True(double.IsNaN(report.DurationSeconds));
-        }
+    [Fact]
+    public void Parse_GoldenFile_PopulatesAllFields()
+    {
+        Assert.True(File.Exists(GoldenPath), $"Golden file missing at {GoldenPath}");
+        var report = AutoFocusReportParser.ParseFile(GoldenPath);
+        Assert.Equal("L", report.Filter);
+        Assert.Equal("STARHFR", report.Method);
+        Assert.Equal("HYPERBOLIC", report.Fitting);
+        Assert.Equal(0, report.BacklashIn);
+        Assert.Equal(2000, report.BacklashOut);
+        Assert.Equal("OVERSHOOT", report.BacklashModel);
+        Assert.Equal(5.292140817103702, report.FinalHfr, 6);
+        // Duration "00:02:07.4969711" -> 127.4969711 seconds
+        Assert.Equal(127.4969711, report.DurationSeconds, 4);
+        Assert.Equal(13735.0, report.InitialPosition);
+        Assert.Equal(5.365780475729857, report.InitialHfr, 6);
+        Assert.Equal(13668.456686285463, report.CalculatedPosition, 6);
+        Assert.Equal(3.7754838009396274, report.CalculatedHfr, 6);
+        // RSquares.Quadratic is the string "NaN" in this report and is skipped by the parser.
+        Assert.False(report.RSquares.ContainsKey("Quadratic"));
+        Assert.Equal(0.9962441941095639, report.RSquares["Hyperbolic"], 6);
+        Assert.Equal(0.9995388291304703, report.RSquares["LeftTrend"], 6);
+        Assert.Equal(1.0, report.RSquares["RightTrend"], 6);
+    }
 
-        [Fact]
-        public void Parse_MissingFocusPoints_PositionsAreNaN() {
-            var json = "{\"Filter\":\"L\"}";
-            using var doc = JsonDocument.Parse(json);
-            var report = AutoFocusReportParser.Parse(doc.RootElement);
-            Assert.True(double.IsNaN(report.InitialPosition));
-            Assert.True(double.IsNaN(report.InitialHfr));
-            Assert.True(double.IsNaN(report.CalculatedPosition));
-            Assert.True(double.IsNaN(report.CalculatedHfr));
-            Assert.True(double.IsNaN(report.FinalHfr));
-        }
+    [Fact]
+    public void Parse_MissingDuration_DurationIsNaN()
+    {
+        var json = "{\"Filter\":\"L\"}";
+        using var doc = JsonDocument.Parse(json);
+        var report = AutoFocusReportParser.Parse(doc.RootElement);
+        Assert.True(double.IsNaN(report.DurationSeconds));
+    }
 
-        [Fact]
-        public void Parse_MissingRSquares_ReturnsEmptyDict() {
-            var json = "{\"Filter\":\"L\",\"Method\":\"STARHFR\",\"Fitting\":\"HYPERBOLIC\"}";
-            using var doc = JsonDocument.Parse(json);
-            var report = AutoFocusReportParser.Parse(doc.RootElement);
-            Assert.Equal("L", report.Filter);
-            Assert.Empty(report.RSquares);
-        }
+    [Fact]
+    public void Parse_MissingFocusPoints_PositionsAreNaN()
+    {
+        var json = "{\"Filter\":\"L\"}";
+        using var doc = JsonDocument.Parse(json);
+        var report = AutoFocusReportParser.Parse(doc.RootElement);
+        Assert.True(double.IsNaN(report.InitialPosition));
+        Assert.True(double.IsNaN(report.InitialHfr));
+        Assert.True(double.IsNaN(report.CalculatedPosition));
+        Assert.True(double.IsNaN(report.CalculatedHfr));
+        Assert.True(double.IsNaN(report.FinalHfr));
+    }
 
-        [Fact]
-        public void Parse_MissingBacklash_DefaultsToZero() {
-            var json = "{\"Filter\":\"L\",\"Method\":\"STARHFR\",\"Fitting\":\"HYPERBOLIC\"}";
-            using var doc = JsonDocument.Parse(json);
-            var report = AutoFocusReportParser.Parse(doc.RootElement);
-            Assert.Equal(0, report.BacklashIn);
-            Assert.Equal(0, report.BacklashOut);
-        }
+    [Fact]
+    public void Parse_MissingRSquares_ReturnsEmptyDict()
+    {
+        var json = "{\"Filter\":\"L\",\"Method\":\"STARHFR\",\"Fitting\":\"HYPERBOLIC\"}";
+        using var doc = JsonDocument.Parse(json);
+        var report = AutoFocusReportParser.Parse(doc.RootElement);
+        Assert.Equal("L", report.Filter);
+        Assert.Empty(report.RSquares);
+    }
 
-        [Fact]
-        public void Parse_WithRSquares_PopulatesAllFitTypes() {
-            var json = @"{
+    [Fact]
+    public void Parse_MissingBacklash_DefaultsToZero()
+    {
+        var json = "{\"Filter\":\"L\",\"Method\":\"STARHFR\",\"Fitting\":\"HYPERBOLIC\"}";
+        using var doc = JsonDocument.Parse(json);
+        var report = AutoFocusReportParser.Parse(doc.RootElement);
+        Assert.Equal(0, report.BacklashIn);
+        Assert.Equal(0, report.BacklashOut);
+    }
+
+    [Fact]
+    public void Parse_WithRSquares_PopulatesAllFitTypes()
+    {
+        var json = @"{
                 ""Filter"": ""L"",
                 ""Method"": ""STARHFR"",
                 ""Fitting"": ""HYPERBOLIC"",
@@ -88,12 +96,11 @@ namespace NINA.Plugin.PrometheusExporter.Tests {
                     ""RightTrend"": 0.92
                 }
             }";
-            using var doc = JsonDocument.Parse(json);
-            var report = AutoFocusReportParser.Parse(doc.RootElement);
-            Assert.Equal(50, report.BacklashIn);
-            Assert.Equal(60, report.BacklashOut);
-            Assert.Equal(4, report.RSquares.Count);
-            Assert.Equal(0.98, report.RSquares["Hyperbolic"]);
-        }
+        using var doc = JsonDocument.Parse(json);
+        var report = AutoFocusReportParser.Parse(doc.RootElement);
+        Assert.Equal(50, report.BacklashIn);
+        Assert.Equal(60, report.BacklashOut);
+        Assert.Equal(4, report.RSquares.Count);
+        Assert.Equal(0.98, report.RSquares["Hyperbolic"]);
     }
 }

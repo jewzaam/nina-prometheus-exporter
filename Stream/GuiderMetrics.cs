@@ -6,82 +6,81 @@ using Prometheus;
 using System;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class GuiderMetrics : IMetricCollector, IGuiderConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IGuiderMediator _mediator;
 
-    internal sealed class GuiderMetrics : IMetricCollector, IGuiderConsumer
+    private readonly Gauge _guiding;
+    private readonly Gauge _rmsRaArcsec, _rmsDecArcsec, _rmsTotalArcsec;
+    private readonly Gauge _peakRaArcsec, _peakDecArcsec;
+    private readonly Gauge _stepRaDistance, _stepRaDuration;
+    private readonly Gauge _stepDecDistance, _stepDecDuration;
+    private readonly Counter _dithers;
+
+    public GuiderMetrics(MetricFactory factory, IGuiderMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IGuiderMediator _mediator;
+        _factory = factory;
+        _mediator = mediator;
+        var ln = _factory.LabelNames();
 
-        private readonly Gauge _guiding;
-        private readonly Gauge _rmsRaArcsec, _rmsDecArcsec, _rmsTotalArcsec;
-        private readonly Gauge _peakRaArcsec, _peakDecArcsec;
-        private readonly Gauge _stepRaDistance, _stepRaDuration;
-        private readonly Gauge _stepDecDistance, _stepDecDuration;
-        private readonly Counter _dithers;
+        _guiding = Metrics.CreateGauge("nina_guider_guiding", "1 while guiding is active", new GaugeConfiguration { LabelNames = ln });
+        _rmsRaArcsec = Metrics.CreateGauge("nina_guider_rms_ra_arcsec", "Guider RA RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
+        _rmsDecArcsec = Metrics.CreateGauge("nina_guider_rms_dec_arcsec", "Guider Dec RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
+        _rmsTotalArcsec = Metrics.CreateGauge("nina_guider_rms_total_arcsec", "Guider total RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
+        _peakRaArcsec = Metrics.CreateGauge("nina_guider_peak_ra_arcsec", "Guider peak RA error in arcseconds", new GaugeConfiguration { LabelNames = ln });
+        _peakDecArcsec = Metrics.CreateGauge("nina_guider_peak_dec_arcsec", "Guider peak Dec error in arcseconds", new GaugeConfiguration { LabelNames = ln });
+        _stepRaDistance = Metrics.CreateGauge("nina_guider_step_ra_distance", "Last guide step RA distance (raw guider units)", new GaugeConfiguration { LabelNames = ln });
+        _stepRaDuration = Metrics.CreateGauge("nina_guider_step_ra_duration_ms", "Last guide step RA pulse duration in ms", new GaugeConfiguration { LabelNames = ln });
+        _stepDecDistance = Metrics.CreateGauge("nina_guider_step_dec_distance", "Last guide step Dec distance (raw guider units)", new GaugeConfiguration { LabelNames = ln });
+        _stepDecDuration = Metrics.CreateGauge("nina_guider_step_dec_duration_ms", "Last guide step Dec pulse duration in ms", new GaugeConfiguration { LabelNames = ln });
+        _dithers = Metrics.CreateCounter("nina_guider_dithers_total", "Count of completed dithers", new CounterConfiguration { LabelNames = ln });
+    }
 
-        public GuiderMetrics(MetricFactory factory, IGuiderMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            var ln = _factory.LabelNames();
+    public void Subscribe()
+    {
+        _mediator.RegisterConsumer(this);
+        _mediator.GuidingStarted += OnGuidingStarted;
+        _mediator.GuidingStopped += OnGuidingStopped;
+        _mediator.AfterDither += OnAfterDither;
+        _mediator.GuideEvent += OnGuideEvent;
+    }
 
-            _guiding = Metrics.CreateGauge("nina_guider_guiding", "1 while guiding is active", new GaugeConfiguration { LabelNames = ln });
-            _rmsRaArcsec = Metrics.CreateGauge("nina_guider_rms_ra_arcsec", "Guider RA RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
-            _rmsDecArcsec = Metrics.CreateGauge("nina_guider_rms_dec_arcsec", "Guider Dec RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
-            _rmsTotalArcsec = Metrics.CreateGauge("nina_guider_rms_total_arcsec", "Guider total RMS in arcseconds", new GaugeConfiguration { LabelNames = ln });
-            _peakRaArcsec = Metrics.CreateGauge("nina_guider_peak_ra_arcsec", "Guider peak RA error in arcseconds", new GaugeConfiguration { LabelNames = ln });
-            _peakDecArcsec = Metrics.CreateGauge("nina_guider_peak_dec_arcsec", "Guider peak Dec error in arcseconds", new GaugeConfiguration { LabelNames = ln });
-            _stepRaDistance = Metrics.CreateGauge("nina_guider_step_ra_distance", "Last guide step RA distance (raw guider units)", new GaugeConfiguration { LabelNames = ln });
-            _stepRaDuration = Metrics.CreateGauge("nina_guider_step_ra_duration_ms", "Last guide step RA pulse duration in ms", new GaugeConfiguration { LabelNames = ln });
-            _stepDecDistance = Metrics.CreateGauge("nina_guider_step_dec_distance", "Last guide step Dec distance (raw guider units)", new GaugeConfiguration { LabelNames = ln });
-            _stepDecDuration = Metrics.CreateGauge("nina_guider_step_dec_duration_ms", "Last guide step Dec pulse duration in ms", new GaugeConfiguration { LabelNames = ln });
-            _dithers = Metrics.CreateCounter("nina_guider_dithers_total", "Count of completed dithers", new CounterConfiguration { LabelNames = ln });
-        }
+    public void UpdateDeviceInfo(GuiderInfo info)
+    {
+        if (info == null || !info.Connected || info.RMSError == null) return;
+        var lv = _factory.LabelValues();
+        _rmsRaArcsec.WithLabels(lv).Set(info.RMSError.RA.Arcseconds);
+        _rmsDecArcsec.WithLabels(lv).Set(info.RMSError.Dec.Arcseconds);
+        _rmsTotalArcsec.WithLabels(lv).Set(info.RMSError.Total.Arcseconds);
+        _peakRaArcsec.WithLabels(lv).Set(info.RMSError.PeakRA.Arcseconds);
+        _peakDecArcsec.WithLabels(lv).Set(info.RMSError.PeakDec.Arcseconds);
+    }
 
-        public void Subscribe()
-        {
-            _mediator.RegisterConsumer(this);
-            _mediator.GuidingStarted += OnGuidingStarted;
-            _mediator.GuidingStopped += OnGuidingStopped;
-            _mediator.AfterDither += OnAfterDither;
-            _mediator.GuideEvent += OnGuideEvent;
-        }
+    private Task OnGuidingStarted(object sender, EventArgs e) { _guiding.WithLabels(_factory.LabelValues()).Set(1); return Task.CompletedTask; }
+    private Task OnGuidingStopped(object sender, EventArgs e) { _guiding.WithLabels(_factory.LabelValues()).Set(0); return Task.CompletedTask; }
+    private Task OnAfterDither(object sender, EventArgs e) { _dithers.WithLabels(_factory.LabelValues()).Inc(); return Task.CompletedTask; }
 
-        public void UpdateDeviceInfo(GuiderInfo info)
-        {
-            if (info == null || !info.Connected || info.RMSError == null) return;
-            var lv = _factory.LabelValues();
-            _rmsRaArcsec.WithLabels(lv).Set(info.RMSError.RA.Arcseconds);
-            _rmsDecArcsec.WithLabels(lv).Set(info.RMSError.Dec.Arcseconds);
-            _rmsTotalArcsec.WithLabels(lv).Set(info.RMSError.Total.Arcseconds);
-            _peakRaArcsec.WithLabels(lv).Set(info.RMSError.PeakRA.Arcseconds);
-            _peakDecArcsec.WithLabels(lv).Set(info.RMSError.PeakDec.Arcseconds);
-        }
+    private void OnGuideEvent(object? sender, IGuideStep step)
+    {
+        if (step == null) return;
+        var lv = _factory.LabelValues();
+        _stepRaDistance.WithLabels(lv).Set(step.RADistanceRaw);
+        _stepRaDuration.WithLabels(lv).Set(step.RADuration);
+        _stepDecDistance.WithLabels(lv).Set(step.DECDistanceRaw);
+        _stepDecDuration.WithLabels(lv).Set(step.DECDuration);
+    }
 
-        private Task OnGuidingStarted(object sender, EventArgs e) { _guiding.WithLabels(_factory.LabelValues()).Set(1); return Task.CompletedTask; }
-        private Task OnGuidingStopped(object sender, EventArgs e) { _guiding.WithLabels(_factory.LabelValues()).Set(0); return Task.CompletedTask; }
-        private Task OnAfterDither(object sender, EventArgs e) { _dithers.WithLabels(_factory.LabelValues()).Inc(); return Task.CompletedTask; }
-
-        private void OnGuideEvent(object? sender, IGuideStep step)
-        {
-            if (step == null) return;
-            var lv = _factory.LabelValues();
-            _stepRaDistance.WithLabels(lv).Set(step.RADistanceRaw);
-            _stepRaDuration.WithLabels(lv).Set(step.RADuration);
-            _stepDecDistance.WithLabels(lv).Set(step.DECDistanceRaw);
-            _stepDecDuration.WithLabels(lv).Set(step.DECDuration);
-        }
-
-        public void Dispose()
-        {
-            _mediator.GuidingStarted -= OnGuidingStarted;
-            _mediator.GuidingStopped -= OnGuidingStopped;
-            _mediator.AfterDither -= OnAfterDither;
-            _mediator.GuideEvent -= OnGuideEvent;
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.GuidingStarted -= OnGuidingStarted;
+        _mediator.GuidingStopped -= OnGuidingStopped;
+        _mediator.AfterDither -= OnAfterDither;
+        _mediator.GuideEvent -= OnGuideEvent;
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

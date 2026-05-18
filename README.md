@@ -1,8 +1,12 @@
-# NINA Prometheus Exporter
+# nina-prometheus-exporter
 
 [![Build](https://github.com/jewzaam/nina-prometheus-exporter/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/jewzaam/nina-prometheus-exporter/actions/workflows/build.yml)
 
 NINA 3.x plugin that exposes a Prometheus scrape endpoint for equipment state, sequence status, image and autofocus telemetry, guiding RMS, mount position, camera temperature, and more.
+
+## Documentation
+
+See [CLAUDE.md](CLAUDE.md) for the project index — design docs, implementation plan, layout, and dev conventions.
 
 ## Install
 

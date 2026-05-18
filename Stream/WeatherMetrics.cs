@@ -4,62 +4,61 @@ using NINA.Equipment.Interfaces.Mediator;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class WeatherMetrics : IMetricCollector, IWeatherDataConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IWeatherDataMediator _mediator;
+    private readonly Gauge _tempC, _humidity, _pressure, _cloud, _windSpeed, _windDir, _windGust;
+    private readonly Gauge _dewPoint, _skyTemp, _skyBrightness, _skyQuality, _rainRate, _starFwhm;
 
-    internal sealed class WeatherMetrics : IMetricCollector, IWeatherDataConsumer
+    public WeatherMetrics(MetricFactory factory, IWeatherDataMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IWeatherDataMediator _mediator;
-        private readonly Gauge _tempC, _humidity, _pressure, _cloud, _windSpeed, _windDir, _windGust;
-        private readonly Gauge _dewPoint, _skyTemp, _skyBrightness, _skyQuality, _rainRate, _starFwhm;
+        _factory = factory;
+        _mediator = mediator;
+        var ln = _factory.LabelNames();
+        _tempC = Metrics.CreateGauge("nina_weather_temperature_celsius", "Outdoor temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
+        _humidity = Metrics.CreateGauge("nina_weather_humidity_percent", "Outdoor humidity 0..100", new GaugeConfiguration { LabelNames = ln });
+        _pressure = Metrics.CreateGauge("nina_weather_pressure_hpa", "Atmospheric pressure in hPa", new GaugeConfiguration { LabelNames = ln });
+        _cloud = Metrics.CreateGauge("nina_weather_cloud_cover_percent", "Cloud cover 0..100", new GaugeConfiguration { LabelNames = ln });
+        _windSpeed = Metrics.CreateGauge("nina_weather_wind_speed_mps", "Wind speed in m/s", new GaugeConfiguration { LabelNames = ln });
+        _windDir = Metrics.CreateGauge("nina_weather_wind_direction_degrees", "Wind direction in degrees", new GaugeConfiguration { LabelNames = ln });
+        _windGust = Metrics.CreateGauge("nina_weather_wind_gust_mps", "Peak 3-second wind speed (last 2 min) m/s", new GaugeConfiguration { LabelNames = ln });
+        _dewPoint = Metrics.CreateGauge("nina_weather_dew_point_celsius", "Dew point in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
+        _skyTemp = Metrics.CreateGauge("nina_weather_sky_temperature_celsius", "Sky temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
+        _skyBrightness = Metrics.CreateGauge("nina_weather_sky_brightness_lux", "Sky brightness in lux", new GaugeConfiguration { LabelNames = ln });
+        _skyQuality = Metrics.CreateGauge("nina_weather_sky_quality_mpsas", "Sky quality in mag/arcsec^2", new GaugeConfiguration { LabelNames = ln });
+        _rainRate = Metrics.CreateGauge("nina_weather_rain_rate_mmh", "Rain rate in mm/h", new GaugeConfiguration { LabelNames = ln });
+        _starFwhm = Metrics.CreateGauge("nina_weather_star_fwhm_arcsec", "Star FWHM (seeing) in arcseconds", new GaugeConfiguration { LabelNames = ln });
+    }
 
-        public WeatherMetrics(MetricFactory factory, IWeatherDataMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            var ln = _factory.LabelNames();
-            _tempC = Metrics.CreateGauge("nina_weather_temperature_celsius", "Outdoor temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
-            _humidity = Metrics.CreateGauge("nina_weather_humidity_percent", "Outdoor humidity 0..100", new GaugeConfiguration { LabelNames = ln });
-            _pressure = Metrics.CreateGauge("nina_weather_pressure_hpa", "Atmospheric pressure in hPa", new GaugeConfiguration { LabelNames = ln });
-            _cloud = Metrics.CreateGauge("nina_weather_cloud_cover_percent", "Cloud cover 0..100", new GaugeConfiguration { LabelNames = ln });
-            _windSpeed = Metrics.CreateGauge("nina_weather_wind_speed_mps", "Wind speed in m/s", new GaugeConfiguration { LabelNames = ln });
-            _windDir = Metrics.CreateGauge("nina_weather_wind_direction_degrees", "Wind direction in degrees", new GaugeConfiguration { LabelNames = ln });
-            _windGust = Metrics.CreateGauge("nina_weather_wind_gust_mps", "Peak 3-second wind speed (last 2 min) m/s", new GaugeConfiguration { LabelNames = ln });
-            _dewPoint = Metrics.CreateGauge("nina_weather_dew_point_celsius", "Dew point in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
-            _skyTemp = Metrics.CreateGauge("nina_weather_sky_temperature_celsius", "Sky temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
-            _skyBrightness = Metrics.CreateGauge("nina_weather_sky_brightness_lux", "Sky brightness in lux", new GaugeConfiguration { LabelNames = ln });
-            _skyQuality = Metrics.CreateGauge("nina_weather_sky_quality_mpsas", "Sky quality in mag/arcsec^2", new GaugeConfiguration { LabelNames = ln });
-            _rainRate = Metrics.CreateGauge("nina_weather_rain_rate_mmh", "Rain rate in mm/h", new GaugeConfiguration { LabelNames = ln });
-            _starFwhm = Metrics.CreateGauge("nina_weather_star_fwhm_arcsec", "Star FWHM (seeing) in arcseconds", new GaugeConfiguration { LabelNames = ln });
-        }
+    public void Subscribe() => _mediator.RegisterConsumer(this);
 
-        public void Subscribe() => _mediator.RegisterConsumer(this);
+    public void UpdateDeviceInfo(WeatherDataInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        var lv = _factory.LabelValues();
+        void S(Gauge g, double v) { if (!double.IsNaN(v)) g.WithLabels(lv).Set(v); }
+        S(_tempC, info.Temperature);
+        S(_humidity, info.Humidity);
+        S(_pressure, info.Pressure);
+        S(_cloud, info.CloudCover);
+        S(_windSpeed, info.WindSpeed);
+        S(_windDir, info.WindDirection);
+        S(_windGust, info.WindGust);
+        S(_dewPoint, info.DewPoint);
+        S(_skyTemp, info.SkyTemperature);
+        S(_skyBrightness, info.SkyBrightness);
+        S(_skyQuality, info.SkyQuality);
+        S(_rainRate, info.RainRate);
+        S(_starFwhm, info.StarFWHM);
+    }
 
-        public void UpdateDeviceInfo(WeatherDataInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            var lv = _factory.LabelValues();
-            void S(Gauge g, double v) { if (!double.IsNaN(v)) g.WithLabels(lv).Set(v); }
-            S(_tempC, info.Temperature);
-            S(_humidity, info.Humidity);
-            S(_pressure, info.Pressure);
-            S(_cloud, info.CloudCover);
-            S(_windSpeed, info.WindSpeed);
-            S(_windDir, info.WindDirection);
-            S(_windGust, info.WindGust);
-            S(_dewPoint, info.DewPoint);
-            S(_skyTemp, info.SkyTemperature);
-            S(_skyBrightness, info.SkyBrightness);
-            S(_skyQuality, info.SkyQuality);
-            S(_rainRate, info.RainRate);
-            S(_starFwhm, info.StarFWHM);
-        }
-
-        public void Dispose()
-        {
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

@@ -9,120 +9,132 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter
+namespace NINA.Plugin.PrometheusExporter;
+
+
+// HTTP transport. EmbedIO with HttpListenerMode.EmbedIO uses a pure-managed socket listener
+// (not System.Net.HttpListener / http.sys), so binding non-loopback addresses works without
+// admin or a `netsh http add urlacl` grant. Pattern lifted from ~/source/ninaAPI/.
+internal class PrometheusServer
 {
+    private WebServer? _server;
+    private CancellationTokenSource? _cts;
+    private Task? _runTask;
+    private string _status = Constants.StatusStopped;
 
-    // HTTP transport. EmbedIO with HttpListenerMode.EmbedIO uses a pure-managed socket listener
-    // (not System.Net.HttpListener / http.sys), so binding non-loopback addresses works without
-    // admin or a `netsh http add urlacl` grant. Pattern lifted from ~/source/ninaAPI/.
-    internal class PrometheusServer
+    public string Status
     {
-        private WebServer? _server;
-        private CancellationTokenSource? _cts;
-        private Task? _runTask;
-        private string _status = Constants.StatusStopped;
-
-        public string Status
+        get => _status;
+        private set
         {
-            get => _status;
-            private set
-            {
-                if (_status == value) return;
-                _status = value;
-                StatusChanged?.Invoke(this, EventArgs.Empty);
-            }
+            if (_status == value) return;
+            _status = value;
+            StatusChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
 
-        public event EventHandler? StatusChanged;
+    public event EventHandler? StatusChanged;
 
-        public virtual void Start(string bindAddress, int port)
+    public virtual void Start(string bindAddress, int port)
+    {
+        // EmbedIO accepts hostname-style prefixes. For all-interfaces use "*"; for a specific
+        // address use that address verbatim. Normalize the typical aliases to "*".
+        var listenerHost = (bindAddress == Constants.BindAllIpv4 || bindAddress == Constants.BindAllHttpListener || string.IsNullOrWhiteSpace(bindAddress))
+            ? Constants.BindAllEmbedIo
+            : bindAddress;
+        var prefix = $"http://{listenerHost}:{port}/";
+
+        try
         {
-            // EmbedIO accepts hostname-style prefixes. For all-interfaces use "*"; for a specific
-            // address use that address verbatim. Normalize the typical aliases to "*".
-            var listenerHost = (bindAddress == Constants.BindAllIpv4 || bindAddress == Constants.BindAllHttpListener || string.IsNullOrWhiteSpace(bindAddress))
-                ? Constants.BindAllEmbedIo
-                : bindAddress;
-            var prefix = $"http://{listenerHost}:{port}/";
-
-            try
-            {
-                _cts = new CancellationTokenSource();
-                _server = new WebServer(o => o
-                    .WithUrlPrefix(prefix)
-                    .WithMode(HttpListenerMode.EmbedIO))
-                    .WithAction("/metrics", HttpVerbs.Get, async ctx =>
-                    {
-                        ctx.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
-                        using var ms = new MemoryStream();
-                        await Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms, ctx.CancellationToken);
-                        await ctx.SendStringAsync(Encoding.UTF8.GetString(ms.ToArray()), "text/plain", Encoding.UTF8);
-                    });
-
-                Status = Constants.StatusStarting;
-                _runTask = _server.RunAsync(_cts.Token);
-
-                // Probe for a result: either RunAsync faulted (bind failed) or the server reached Listening.
-                // EmbedIO's HttpListenerMode.EmbedIO surfaces SocketException via RunAsync's task when
-                // the underlying TcpListener.Start() fails (port in use, bind address invalid, etc.).
-                var deadline = DateTime.UtcNow.AddSeconds(Constants.ServerStartProbeTimeoutSeconds);
-                while (DateTime.UtcNow < deadline)
+            _cts = new CancellationTokenSource();
+            _server = new WebServer(o => o
+                .WithUrlPrefix(prefix)
+                .WithMode(HttpListenerMode.EmbedIO))
+                .WithAction("/metrics", HttpVerbs.Get, async ctx =>
                 {
-                    if (_runTask.IsFaulted)
-                    {
-                        var ex = _runTask.Exception?.InnerException;
-                        Status = $"failed: {ex?.Message ?? _runTask.Exception?.Message ?? Constants.Unknown}";
-                        Logger.Error($"PrometheusServer start failed: {_runTask.Exception}");
-                        return;
-                    }
-                    if (_runTask.IsCompleted)
-                    {
-                        Status = "stopped (server returned immediately)";
-                        return;
-                    }
-                    if (_server.State == WebServerState.Listening)
-                    {
-                        Status = $"running on {bindAddress}:{port}";
-                        Logger.Info($"PrometheusServer: {Status} (EmbedIO managed listener)");
-                        return;
-                    }
-                    Thread.Sleep(Constants.ServerStartProbeIntervalMs);
-                }
-                // Timeout — server never reached Listening within the deadline.
-                Status = $"unknown: server state is {_server.State} after probe timeout";
-                Logger.Warning($"PrometheusServer: {Status}");
-            }
-            catch (Exception ex)
-            {
-                Status = $"failed: {ex.Message}";
-                Logger.Error($"PrometheusServer start failed: {ex}");
-            }
-        }
+                    ctx.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
+                    using var ms = new MemoryStream();
+                    await Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms, ctx.CancellationToken);
+                    await ctx.SendStringAsync(Encoding.UTF8.GetString(ms.ToArray()), "text/plain", Encoding.UTF8);
+                });
 
-        public virtual void Stop()
-        {
-            try
-            {
-                _cts?.Cancel();
-                _server?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"PrometheusServer stop failed: {ex}");
-            }
-            finally
-            {
-                _server = null;
-                _cts?.Dispose();
-                _cts = null;
-                _runTask = null;
-                Status = Constants.StatusStopped;
-            }
-        }
+            Status = Constants.StatusStarting;
+            _runTask = _server.RunAsync(_cts.Token);
 
-        public virtual void Restart(string bindAddress, int port)
-        {
-            Stop();
-            Start(bindAddress, port);
+            // Probe for a result off the calling thread (NINA's plugin Initialize path).
+            // Blocking Initialize for 3 seconds delays NINA startup; the background probe
+            // surfaces real bind failures via StatusChanged once they're known.
+            _ = Task.Run(() => ProbeListenerState(bindAddress, port));
         }
+        catch (Exception ex)
+        {
+            Status = $"failed: {ex.Message}";
+            Logger.Error("PrometheusServer start failed", ex);
+        }
+    }
+
+    // Polls EmbedIO's listener state until it reaches Listening, RunAsync faults, or the
+    // probe deadline elapses. Runs on a background Task so NINA's plugin Initialize() path
+    // is not blocked. Updates Status (and fires StatusChanged) so the Options UI reflects
+    // the real outcome of the bind attempt rather than the optimistic "starting" state.
+    private void ProbeListenerState(string bindAddress, int port)
+    {
+        var runTask = _runTask;
+        var server = _server;
+        if (runTask is null || server is null) return;
+
+        var deadline = DateTime.UtcNow.AddSeconds(Constants.ServerStartProbeTimeoutSeconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (runTask.IsFaulted)
+            {
+                var ex = runTask.Exception?.InnerException ?? (Exception?)runTask.Exception;
+                Status = $"failed: {ex?.Message ?? Constants.Unknown}";
+                if (ex != null) Logger.Error("PrometheusServer start failed", ex);
+                else Logger.Error("PrometheusServer start failed (no exception captured)");
+                return;
+            }
+            if (runTask.IsCompleted)
+            {
+                Status = "stopped (server returned immediately)";
+                return;
+            }
+            if (server.State == WebServerState.Listening)
+            {
+                Status = $"running on {bindAddress}:{port}";
+                Logger.Info($"PrometheusServer: {Status} (EmbedIO managed listener)");
+                return;
+            }
+            Thread.Sleep(Constants.ServerStartProbeIntervalMs);
+        }
+        Status = $"unknown: server state is {server.State} after probe timeout";
+        Logger.Warning($"PrometheusServer: {Status}");
+    }
+
+    public virtual void Stop()
+    {
+        try
+        {
+            _cts?.Cancel();
+            _server?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("PrometheusServer stop failed", ex);
+        }
+        finally
+        {
+            _server = null;
+            _cts?.Dispose();
+            _cts = null;
+            _runTask = null;
+            Status = Constants.StatusStopped;
+        }
+    }
+
+    public virtual void Restart(string bindAddress, int port)
+    {
+        Stop();
+        Start(bindAddress, port);
     }
 }

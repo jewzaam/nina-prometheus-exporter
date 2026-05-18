@@ -2,11 +2,17 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>Library</OutputType>
     <UseWPF>true</UseWPF>
     <AssemblyName>NINA.Plugin.PrometheusExporter</AssemblyName>
     <RootNamespace>NINA.Plugin.PrometheusExporter</RootNamespace>
     <LangVersion>12.0</LangVersion>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- NU1701: NINA.Plugin transitively pulls net4x-only packages (ToastNotifications, VVVV.FreeImage)
+         that resolve under net4x compat. NINA itself ships these, so the warning is unfixable from
+         our side. Exempt the NuGet-compat warning only; CS warnings still fail the build. -->
+    <WarningsNotAsErrors>NU1701</WarningsNotAsErrors>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -20,7 +26,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NINA.Plugin" Version="3.2.*" />
+    <!-- PrivateAssets=all keeps NINA's framework DLLs out of bin/Release (per standards/dotnet/nina-plugin.md §1/§2).
+         Combined with the explicit ship list in scripts/ship-list.ps1, this is belt-and-suspenders. -->
+    <PackageReference Include="NINA.Plugin" Version="3.2.*">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="prometheus-net" Version="8.*" />
     <!-- EmbedIO provides a managed-socket HTTP listener (HttpListenerMode.EmbedIO) that bypasses
          Windows http.sys, so the plugin can bind to non-loopback addresses without admin/URL ACL. -->

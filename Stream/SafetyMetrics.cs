@@ -4,37 +4,36 @@ using NINA.Equipment.Interfaces.Mediator;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class SafetyMetrics : IMetricCollector, ISafetyMonitorConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly ISafetyMonitorMediator _mediator;
+    private readonly Gauge _isSafe;
 
-    internal sealed class SafetyMetrics : IMetricCollector, ISafetyMonitorConsumer
+    public SafetyMetrics(MetricFactory factory, ISafetyMonitorMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly ISafetyMonitorMediator _mediator;
-        private readonly Gauge _isSafe;
+        _factory = factory;
+        _mediator = mediator;
+        _isSafe = Metrics.CreateGauge(
+            "nina_safety_is_safe",
+            "1 if the safety monitor reports safe, else 0",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames() });
+    }
 
-        public SafetyMetrics(MetricFactory factory, ISafetyMonitorMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            _isSafe = Metrics.CreateGauge(
-                "nina_safety_is_safe",
-                "1 if the safety monitor reports safe, else 0",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-        }
+    public void Subscribe() => _mediator.RegisterConsumer(this);
 
-        public void Subscribe() => _mediator.RegisterConsumer(this);
+    public void UpdateDeviceInfo(SafetyMonitorInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        _isSafe.WithLabels(_factory.LabelValues()).Set(info.IsSafe ? 1 : 0);
+    }
 
-        public void UpdateDeviceInfo(SafetyMonitorInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            _isSafe.WithLabels(_factory.LabelValues()).Set(info.IsSafe ? 1 : 0);
-        }
-
-        public void Dispose()
-        {
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

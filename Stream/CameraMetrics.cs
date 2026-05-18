@@ -5,62 +5,61 @@ using Prometheus;
 using System;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class CameraMetrics : IMetricCollector, ICameraConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly ICameraMediator _mediator;
+    private readonly Gauge _temperature;
+    private readonly Gauge _coolerPower;
+    private readonly Counter _downloadTimeout;
 
-    internal sealed class CameraMetrics : IMetricCollector, ICameraConsumer
+    public CameraMetrics(MetricFactory factory, ICameraMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly ICameraMediator _mediator;
-        private readonly Gauge _temperature;
-        private readonly Gauge _coolerPower;
-        private readonly Counter _downloadTimeout;
+        _factory = factory;
+        _mediator = mediator;
+        _temperature = Metrics.CreateGauge(
+            "nina_camera_temperature_celsius",
+            "Camera sensor temperature in degrees Celsius",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames() });
+        _coolerPower = Metrics.CreateGauge(
+            "nina_camera_cooler_power_percent",
+            "Camera cooler power level (0-100)",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames() });
+        _downloadTimeout = Metrics.CreateCounter(
+            "nina_camera_download_timeout_total",
+            "Total count of camera download timeout events",
+            new CounterConfiguration { LabelNames = _factory.LabelNames() });
+    }
 
-        public CameraMetrics(MetricFactory factory, ICameraMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            _temperature = Metrics.CreateGauge(
-                "nina_camera_temperature_celsius",
-                "Camera sensor temperature in degrees Celsius",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-            _coolerPower = Metrics.CreateGauge(
-                "nina_camera_cooler_power_percent",
-                "Camera cooler power level (0-100)",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-            _downloadTimeout = Metrics.CreateCounter(
-                "nina_camera_download_timeout_total",
-                "Total count of camera download timeout events",
-                new CounterConfiguration { LabelNames = _factory.LabelNames() });
-        }
+    public void Subscribe()
+    {
+        _mediator.RegisterConsumer(this);
+        _mediator.DownloadTimeout += OnDownloadTimeout;
+    }
 
-        public void Subscribe()
-        {
-            _mediator.RegisterConsumer(this);
-            _mediator.DownloadTimeout += OnDownloadTimeout;
-        }
+    public void UpdateDeviceInfo(CameraInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        var lv = _factory.LabelValues();
+        if (!double.IsNaN(info.Temperature))
+            _temperature.WithLabels(lv).Set(info.Temperature);
+        if (!double.IsNaN(info.CoolerPower))
+            _coolerPower.WithLabels(lv).Set(info.CoolerPower);
+    }
 
-        public void UpdateDeviceInfo(CameraInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            var lv = _factory.LabelValues();
-            if (!double.IsNaN(info.Temperature))
-                _temperature.WithLabels(lv).Set(info.Temperature);
-            if (!double.IsNaN(info.CoolerPower))
-                _coolerPower.WithLabels(lv).Set(info.CoolerPower);
-        }
+    private Task OnDownloadTimeout(object sender, EventArgs args)
+    {
+        _downloadTimeout.WithLabels(_factory.LabelValues()).Inc();
+        return Task.CompletedTask;
+    }
 
-        private Task OnDownloadTimeout(object sender, EventArgs args)
-        {
-            _downloadTimeout.WithLabels(_factory.LabelValues()).Inc();
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-            _mediator.DownloadTimeout -= OnDownloadTimeout;
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.DownloadTimeout -= OnDownloadTimeout;
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

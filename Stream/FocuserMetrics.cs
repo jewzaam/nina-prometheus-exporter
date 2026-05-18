@@ -5,60 +5,59 @@ using OxyPlot;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+// Focuser temperature + position live here. AutoFocusMetrics owns the AF state-machine callbacks.
+// Both classes implement IFocuserConsumer and register independently with IFocuserMediator.
+internal sealed class FocuserMetrics : IMetricCollector, IFocuserConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IFocuserMediator _mediator;
+    private readonly Gauge _position;
+    private readonly Gauge _temperature;
+    private readonly Gauge _tempComp;
+    private readonly Gauge _tempCompAvailable;
+    private readonly Gauge _moving;
+    private readonly Gauge _settling;
 
-    // Focuser temperature + position live here. AutoFocusMetrics owns the AF state-machine callbacks.
-    // Both classes implement IFocuserConsumer and register independently with IFocuserMediator.
-    internal sealed class FocuserMetrics : IMetricCollector, IFocuserConsumer
+    public FocuserMetrics(MetricFactory factory, IFocuserMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IFocuserMediator _mediator;
-        private readonly Gauge _position;
-        private readonly Gauge _temperature;
-        private readonly Gauge _tempComp;
-        private readonly Gauge _tempCompAvailable;
-        private readonly Gauge _moving;
-        private readonly Gauge _settling;
+        _factory = factory;
+        _mediator = mediator;
+        var ln = _factory.LabelNames();
+        _position = Metrics.CreateGauge("nina_focuser_position", "Focuser position (steps)", new GaugeConfiguration { LabelNames = ln });
+        _temperature = Metrics.CreateGauge("nina_focuser_temperature_celsius", "Focuser ambient temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
+        _tempComp = Metrics.CreateGauge("nina_focuser_temp_comp", "1 if temperature compensation is enabled, else 0", new GaugeConfiguration { LabelNames = ln });
+        _tempCompAvailable = Metrics.CreateGauge("nina_focuser_temp_comp_available", "1 if the driver supports temperature compensation, else 0", new GaugeConfiguration { LabelNames = ln });
+        _moving = Metrics.CreateGauge("nina_focuser_moving", "1 if focuser is currently moving, else 0", new GaugeConfiguration { LabelNames = ln });
+        _settling = Metrics.CreateGauge("nina_focuser_settling", "1 if focuser is settling after a move, else 0", new GaugeConfiguration { LabelNames = ln });
+    }
 
-        public FocuserMetrics(MetricFactory factory, IFocuserMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            var ln = _factory.LabelNames();
-            _position = Metrics.CreateGauge("nina_focuser_position", "Focuser position (steps)", new GaugeConfiguration { LabelNames = ln });
-            _temperature = Metrics.CreateGauge("nina_focuser_temperature_celsius", "Focuser ambient temperature in degrees Celsius", new GaugeConfiguration { LabelNames = ln });
-            _tempComp = Metrics.CreateGauge("nina_focuser_temp_comp", "1 if temperature compensation is enabled, else 0", new GaugeConfiguration { LabelNames = ln });
-            _tempCompAvailable = Metrics.CreateGauge("nina_focuser_temp_comp_available", "1 if the driver supports temperature compensation, else 0", new GaugeConfiguration { LabelNames = ln });
-            _moving = Metrics.CreateGauge("nina_focuser_moving", "1 if focuser is currently moving, else 0", new GaugeConfiguration { LabelNames = ln });
-            _settling = Metrics.CreateGauge("nina_focuser_settling", "1 if focuser is settling after a move, else 0", new GaugeConfiguration { LabelNames = ln });
-        }
+    public void Subscribe() => _mediator.RegisterConsumer(this);
 
-        public void Subscribe() => _mediator.RegisterConsumer(this);
+    public void UpdateDeviceInfo(FocuserInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        var lv = _factory.LabelValues();
+        _position.WithLabels(lv).Set(info.Position);
+        if (!double.IsNaN(info.Temperature))
+            _temperature.WithLabels(lv).Set(info.Temperature);
+        _tempComp.WithLabels(lv).Set(info.TempComp ? 1 : 0);
+        _tempCompAvailable.WithLabels(lv).Set(info.TempCompAvailable ? 1 : 0);
+        _moving.WithLabels(lv).Set(info.IsMoving ? 1 : 0);
+        _settling.WithLabels(lv).Set(info.IsSettling ? 1 : 0);
+    }
 
-        public void UpdateDeviceInfo(FocuserInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            var lv = _factory.LabelValues();
-            _position.WithLabels(lv).Set(info.Position);
-            if (!double.IsNaN(info.Temperature))
-                _temperature.WithLabels(lv).Set(info.Temperature);
-            _tempComp.WithLabels(lv).Set(info.TempComp ? 1 : 0);
-            _tempCompAvailable.WithLabels(lv).Set(info.TempCompAvailable ? 1 : 0);
-            _moving.WithLabels(lv).Set(info.IsMoving ? 1 : 0);
-            _settling.WithLabels(lv).Set(info.IsSettling ? 1 : 0);
-        }
+    // No-op IFocuserConsumer callbacks owned by AutoFocusMetrics:
+    public void UpdateEndAutoFocusRun(AutoFocusInfo info) { }
+    public void UpdateUserFocused(FocuserInfo info) { }
+    public void AutoFocusRunStarting() { }
+    public void NewAutoFocusPoint(DataPoint dataPoint) { }
 
-        // No-op IFocuserConsumer callbacks owned by AutoFocusMetrics:
-        public void UpdateEndAutoFocusRun(AutoFocusInfo info) { }
-        public void UpdateUserFocused(FocuserInfo info) { }
-        public void AutoFocusRunStarting() { }
-        public void NewAutoFocusPoint(DataPoint dataPoint) { }
-
-        public void Dispose()
-        {
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

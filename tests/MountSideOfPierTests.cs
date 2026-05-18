@@ -10,46 +10,50 @@ using System.Linq;
 using System.Text;
 using Xunit;
 
-namespace NINA.Plugin.PrometheusExporter.Tests {
+namespace NINA.Plugin.PrometheusExporter.Tests;
 
-    public class MountSideOfPierTests {
 
-        private static string CollectAll() {
-            using var ms = new MemoryStream();
-            Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms).GetAwaiter().GetResult();
-            return Encoding.UTF8.GetString(ms.ToArray());
-        }
+public class MountSideOfPierTests
+{
 
-        private static double CounterValue(string name) =>
-            CollectAll()
-                .Split('\n')
-                .Where(l => l.StartsWith(name) && !l.StartsWith("# "))
-                .Select(l => {
-                    var idx = l.LastIndexOf(' ');
-                    return double.TryParse(l.Substring(idx + 1), out var v) ? v : 0;
-                })
-                .DefaultIfEmpty(0)
-                .Sum();
+    private static string CollectAll()
+    {
+        using var ms = new MemoryStream();
+        Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms).GetAwaiter().GetResult();
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
 
-        [Fact]
-        public void EdgeIntoUnknown_IncrementsCounter() {
-            var profile = new Mock<IProfileService>();
-            profile.Setup(p => p.ActiveProfile.Name).Returns("test");
+    private static double CounterValue(string name) =>
+        CollectAll()
+            .Split('\n')
+            .Where(l => l.StartsWith(name) && !l.StartsWith("# "))
+            .Select(l =>
+            {
+                var idx = l.LastIndexOf(' ');
+                return double.TryParse(l.Substring(idx + 1), out var v) ? v : 0;
+            })
+            .DefaultIfEmpty(0)
+            .Sum();
 
-            var mediator = new Mock<ITelescopeMediator>();
-            var factory = new MetricFactory(profile.Object);
-            var metrics = new MountMetrics(factory, mediator.Object);
+    [Fact]
+    public void EdgeIntoUnknown_IncrementsCounter()
+    {
+        var profile = new Mock<IProfileService>();
+        profile.Setup(p => p.ActiveProfile.Name).Returns("test");
 
-            var lv = factory.LabelValues();
-            var startValue = CounterValue("nina_mount_side_of_pier_unknown_total");
+        var mediator = new Mock<ITelescopeMediator>();
+        var factory = new MetricFactory(profile.Object);
+        var metrics = new MountMetrics(factory, mediator.Object);
 
-            metrics.UpdateSideOfPier(PierSide.pierEast, lv);     // baseline (no edge yet — first call initializes)
-            metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // edge into Unknown → +1
-            metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // still Unknown → no edge
-            metrics.UpdateSideOfPier(PierSide.pierEast, lv);     // back to Known → no edge
-            metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // edge into Unknown → +1
+        var lv = factory.LabelValues();
+        var startValue = CounterValue("nina_mount_side_of_pier_unknown_total");
 
-            Assert.Equal(startValue + 2, CounterValue("nina_mount_side_of_pier_unknown_total"));
-        }
+        metrics.UpdateSideOfPier(PierSide.pierEast, lv);     // baseline (no edge yet — first call initializes)
+        metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // edge into Unknown → +1
+        metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // still Unknown → no edge
+        metrics.UpdateSideOfPier(PierSide.pierEast, lv);     // back to Known → no edge
+        metrics.UpdateSideOfPier(PierSide.pierUnknown, lv);  // edge into Unknown → +1
+
+        Assert.Equal(startValue + 2, CounterValue("nina_mount_side_of_pier_unknown_total"));
     }
 }

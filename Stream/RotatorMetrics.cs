@@ -4,45 +4,44 @@ using NINA.Equipment.Interfaces.Mediator;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class RotatorMetrics : IMetricCollector, IRotatorConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IRotatorMediator _mediator;
+    private readonly Gauge _position;
+    private readonly Gauge _mechanical;
+    private readonly Gauge _moving;
+    private readonly Gauge _synced;
 
-    internal sealed class RotatorMetrics : IMetricCollector, IRotatorConsumer
+    public RotatorMetrics(MetricFactory factory, IRotatorMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IRotatorMediator _mediator;
-        private readonly Gauge _position;
-        private readonly Gauge _mechanical;
-        private readonly Gauge _moving;
-        private readonly Gauge _synced;
+        _factory = factory;
+        _mediator = mediator;
+        var ln = _factory.LabelNames();
+        _position = Metrics.CreateGauge("nina_rotator_position_degrees", "Rotator sky position in degrees", new GaugeConfiguration { LabelNames = ln });
+        _mechanical = Metrics.CreateGauge("nina_rotator_mechanical_position_degrees", "Rotator mechanical position in degrees", new GaugeConfiguration { LabelNames = ln });
+        _moving = Metrics.CreateGauge("nina_rotator_moving", "1 if rotator is moving, else 0", new GaugeConfiguration { LabelNames = ln });
+        _synced = Metrics.CreateGauge("nina_rotator_synced", "1 if rotator is synced, else 0", new GaugeConfiguration { LabelNames = ln });
+    }
 
-        public RotatorMetrics(MetricFactory factory, IRotatorMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            var ln = _factory.LabelNames();
-            _position = Metrics.CreateGauge("nina_rotator_position_degrees", "Rotator sky position in degrees", new GaugeConfiguration { LabelNames = ln });
-            _mechanical = Metrics.CreateGauge("nina_rotator_mechanical_position_degrees", "Rotator mechanical position in degrees", new GaugeConfiguration { LabelNames = ln });
-            _moving = Metrics.CreateGauge("nina_rotator_moving", "1 if rotator is moving, else 0", new GaugeConfiguration { LabelNames = ln });
-            _synced = Metrics.CreateGauge("nina_rotator_synced", "1 if rotator is synced, else 0", new GaugeConfiguration { LabelNames = ln });
-        }
+    public void Subscribe() => _mediator.RegisterConsumer(this);
 
-        public void Subscribe() => _mediator.RegisterConsumer(this);
+    public void UpdateDeviceInfo(RotatorInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        var lv = _factory.LabelValues();
+        _position.WithLabels(lv).Set(info.Position);
+        _mechanical.WithLabels(lv).Set(info.MechanicalPosition);
+        _moving.WithLabels(lv).Set(info.IsMoving ? 1 : 0);
+        _synced.WithLabels(lv).Set(info.Synced ? 1 : 0);
+    }
 
-        public void UpdateDeviceInfo(RotatorInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            var lv = _factory.LabelValues();
-            _position.WithLabels(lv).Set(info.Position);
-            _mechanical.WithLabels(lv).Set(info.MechanicalPosition);
-            _moving.WithLabels(lv).Set(info.IsMoving ? 1 : 0);
-            _synced.WithLabels(lv).Set(info.Synced ? 1 : 0);
-        }
-
-        public void Dispose()
-        {
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

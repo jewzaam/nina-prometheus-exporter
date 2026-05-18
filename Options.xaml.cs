@@ -2,16 +2,15 @@
 using System.ComponentModel.Composition;
 using System.Windows;
 
-namespace NINA.Plugin.PrometheusExporter
+namespace NINA.Plugin.PrometheusExporter;
+
+
+[Export(typeof(ResourceDictionary))]
+public partial class Options : ResourceDictionary
 {
 
-    [Export(typeof(ResourceDictionary))]
-    public partial class Options : ResourceDictionary
+    public Options()
     {
-
-        public Options()
-        {
-            InitializeComponent();
-        }
+        InitializeComponent();
     }
 }

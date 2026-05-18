@@ -14,165 +14,165 @@ using System.ComponentModel;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter
+namespace NINA.Plugin.PrometheusExporter;
+
+
+[Export(typeof(IPluginManifest))]
+public sealed class PrometheusExporterPlugin : PluginBase
 {
+    private readonly IProfileService _profileService;
+    private readonly MetricFactory _factory;
+    private readonly PrometheusServer _server;
+    private readonly Gauge _up;
 
-    [Export(typeof(IPluginManifest))]
-    public sealed class PrometheusExporterPlugin : PluginBase
+    private readonly EquipmentMetrics _equipment;
+    private readonly CameraMetrics _camera;
+    private readonly MountMetrics _mount;
+    private readonly FocuserMetrics _focuser;
+    private readonly FilterWheelMetrics _filter;
+    private readonly GuiderMetrics _guider;
+    private readonly ImageMetrics _image;
+    private readonly AutoFocusMetrics _autofocus;
+    private readonly SequenceMetrics _sequence;
+    private readonly DomeMetrics _dome;
+    private readonly RotatorMetrics _rotator;
+    private readonly FlatDeviceMetrics _flat;
+    private readonly SafetyMetrics _safety;
+    private readonly WeatherMetrics _weather;
+    private readonly SwitchMetrics _switch;
+
+    // Exposed for the Options XAML DataTemplate binding (`{Binding ExporterOptions.Port}`).
+    public PrometheusExporterOptions ExporterOptions { get; }
+
+    [ImportingConstructor]
+    public PrometheusExporterPlugin(
+        IProfileService profileService,
+        ICameraMediator cameraMediator,
+        ITelescopeMediator telescopeMediator,
+        IFocuserMediator focuserMediator,
+        IFilterWheelMediator filterWheelMediator,
+        IGuiderMediator guiderMediator,
+        IImageSaveMediator imageSaveMediator,
+        ISequenceMediator sequenceMediator,
+        IDomeMediator domeMediator,
+        IRotatorMediator rotatorMediator,
+        IFlatDeviceMediator flatDeviceMediator,
+        ISafetyMonitorMediator safetyMonitorMediator,
+        IWeatherDataMediator weatherMediator,
+        ISwitchMediator switchMediator)
     {
-        private readonly IProfileService _profileService;
-        private readonly MetricFactory _factory;
-        private readonly PrometheusServer _server;
-        private readonly Gauge _up;
+        _profileService = profileService;
+        ExporterOptions = new PrometheusExporterOptions(profileService);
+        _factory = new MetricFactory(profileService);
+        _server = new PrometheusServer();
 
-        private readonly EquipmentMetrics _equipment;
-        private readonly CameraMetrics _camera;
-        private readonly MountMetrics _mount;
-        private readonly FocuserMetrics _focuser;
-        private readonly FilterWheelMetrics _filter;
-        private readonly GuiderMetrics _guider;
-        private readonly ImageMetrics _image;
-        private readonly AutoFocusMetrics _autofocus;
-        private readonly SequenceMetrics _sequence;
-        private readonly DomeMetrics _dome;
-        private readonly RotatorMetrics _rotator;
-        private readonly FlatDeviceMetrics _flat;
-        private readonly SafetyMetrics _safety;
-        private readonly WeatherMetrics _weather;
-        private readonly SwitchMetrics _switch;
+        _up = Metrics.CreateGauge(
+            "nina_up",
+            "1 if the Prometheus exporter plugin is running",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames() });
 
-        // Exposed for the Options XAML DataTemplate binding (`{Binding ExporterOptions.Port}`).
-        public PrometheusExporterOptions ExporterOptions { get; }
+        _equipment = new EquipmentMetrics(
+            _factory, cameraMediator, telescopeMediator, focuserMediator,
+            filterWheelMediator, guiderMediator, domeMediator, rotatorMediator,
+            flatDeviceMediator, safetyMonitorMediator, weatherMediator, switchMediator);
+        _camera = new CameraMetrics(_factory, cameraMediator);
+        _mount = new MountMetrics(_factory, telescopeMediator);
+        _focuser = new FocuserMetrics(_factory, focuserMediator);
+        _filter = new FilterWheelMetrics(_factory, filterWheelMediator);
+        _guider = new GuiderMetrics(_factory, guiderMediator);
+        _image = new ImageMetrics(_factory, imageSaveMediator);
+        _autofocus = new AutoFocusMetrics(_factory, focuserMediator, ExporterOptions);
+        _sequence = new SequenceMetrics(_factory, sequenceMediator, ExporterOptions);
+        _dome = new DomeMetrics(_factory, domeMediator);
+        _rotator = new RotatorMetrics(_factory, rotatorMediator);
+        _flat = new FlatDeviceMetrics(_factory, flatDeviceMediator);
+        _safety = new SafetyMetrics(_factory, safetyMonitorMediator);
+        _weather = new WeatherMetrics(_factory, weatherMediator);
+        _switch = new SwitchMetrics(_factory, switchMediator);
 
-        [ImportingConstructor]
-        public PrometheusExporterPlugin(
-            IProfileService profileService,
-            ICameraMediator cameraMediator,
-            ITelescopeMediator telescopeMediator,
-            IFocuserMediator focuserMediator,
-            IFilterWheelMediator filterWheelMediator,
-            IGuiderMediator guiderMediator,
-            IImageSaveMediator imageSaveMediator,
-            ISequenceMediator sequenceMediator,
-            IDomeMediator domeMediator,
-            IRotatorMediator rotatorMediator,
-            IFlatDeviceMediator flatDeviceMediator,
-            ISafetyMonitorMediator safetyMonitorMediator,
-            IWeatherDataMediator weatherMediator,
-            ISwitchMediator switchMediator)
+        ExporterOptions.PropertyChanged += OnOptionsChanged;
+        ExporterOptions.ApplyServerRequested += OnApplyServerRequested;
+        _server.StatusChanged += OnServerStatusChanged;
+    }
+
+    private void OnApplyServerRequested(object? sender, EventArgs e)
+    {
+        _server.Restart(ExporterOptions.BindAddress, ExporterOptions.Port);
+        ExporterOptions.MarkApplied();
+    }
+
+    private void OnServerStatusChanged(object? sender, EventArgs e)
+    {
+        ExporterOptions.ServerStatus = _server.Status;
+    }
+
+    public override Task Initialize()
+    {
+        _up.WithLabels(_factory.LabelValues()).Set(1);
+
+        foreach (var c in AllCollectors())
         {
-            _profileService = profileService;
-            ExporterOptions = new PrometheusExporterOptions(profileService);
-            _factory = new MetricFactory(profileService);
-            _server = new PrometheusServer();
-
-            _up = Metrics.CreateGauge(
-                "nina_up",
-                "1 if the Prometheus exporter plugin is running",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-
-            _equipment = new EquipmentMetrics(
-                _factory, cameraMediator, telescopeMediator, focuserMediator,
-                filterWheelMediator, guiderMediator, domeMediator, rotatorMediator,
-                flatDeviceMediator, safetyMonitorMediator, weatherMediator, switchMediator);
-            _camera = new CameraMetrics(_factory, cameraMediator);
-            _mount = new MountMetrics(_factory, telescopeMediator);
-            _focuser = new FocuserMetrics(_factory, focuserMediator);
-            _filter = new FilterWheelMetrics(_factory, filterWheelMediator);
-            _guider = new GuiderMetrics(_factory, guiderMediator);
-            _image = new ImageMetrics(_factory, imageSaveMediator);
-            _autofocus = new AutoFocusMetrics(_factory, focuserMediator, ExporterOptions);
-            _sequence = new SequenceMetrics(_factory, sequenceMediator, ExporterOptions);
-            _dome = new DomeMetrics(_factory, domeMediator);
-            _rotator = new RotatorMetrics(_factory, rotatorMediator);
-            _flat = new FlatDeviceMetrics(_factory, flatDeviceMediator);
-            _safety = new SafetyMetrics(_factory, safetyMonitorMediator);
-            _weather = new WeatherMetrics(_factory, weatherMediator);
-            _switch = new SwitchMetrics(_factory, switchMediator);
-
-            ExporterOptions.PropertyChanged += OnOptionsChanged;
-            ExporterOptions.ApplyServerRequested += OnApplyServerRequested;
-            _server.StatusChanged += OnServerStatusChanged;
+            try { c.Subscribe(); }
+            catch (Exception ex) { Logger.Error($"PrometheusExporter: {c.GetType().Name}.Subscribe failed", ex); }
         }
 
-        private void OnApplyServerRequested(object? sender, EventArgs e)
+        _server.Start(ExporterOptions.BindAddress, ExporterOptions.Port);
+        ExporterOptions.ServerStatus = _server.Status;
+        ExporterOptions.MarkApplied();
+        Logger.Info($"PrometheusExporter Initialize: {_server.Status}");
+        return Task.CompletedTask;
+    }
+
+    public override Task Teardown()
+    {
+        ExporterOptions.PropertyChanged -= OnOptionsChanged;
+        ExporterOptions.ApplyServerRequested -= OnApplyServerRequested;
+        ExporterOptions.DetachFromProfileService();
+        _server.StatusChanged -= OnServerStatusChanged;
+        _server.Stop();
+        ExporterOptions.ServerStatus = _server.Status;
+        foreach (var c in AllCollectors())
         {
-            _server.Restart(ExporterOptions.BindAddress, ExporterOptions.Port);
-            ExporterOptions.MarkApplied();
+            try { c.Dispose(); }
+            catch (Exception ex) { Logger.Error($"PrometheusExporter: {c.GetType().Name}.Dispose failed", ex); }
         }
+        return Task.CompletedTask;
+    }
 
-        private void OnServerStatusChanged(object? sender, EventArgs e)
+    private IEnumerable<IMetricCollector> AllCollectors()
+    {
+        yield return _equipment;
+        yield return _camera;
+        yield return _mount;
+        yield return _focuser;
+        yield return _filter;
+        yield return _guider;
+        yield return _image;
+        yield return _autofocus;
+        yield return _sequence;
+        yield return _dome;
+        yield return _rotator;
+        yield return _flat;
+        yield return _safety;
+        yield return _weather;
+        yield return _switch;
+    }
+
+    private void OnOptionsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
         {
-            ExporterOptions.ServerStatus = _server.Status;
-        }
-
-        public override Task Initialize()
-        {
-            _up.WithLabels(_factory.LabelValues()).Set(1);
-
-            foreach (var c in AllCollectors())
-            {
-                try { c.Subscribe(); }
-                catch (Exception ex) { Logger.Error($"PrometheusExporter: {c.GetType().Name}.Subscribe failed: {ex}"); }
-            }
-
-            _server.Start(ExporterOptions.BindAddress, ExporterOptions.Port);
-            ExporterOptions.ServerStatus = _server.Status;
-            ExporterOptions.MarkApplied();
-            Logger.Info($"PrometheusExporter Initialize: {_server.Status}");
-            return Task.CompletedTask;
-        }
-
-        public override Task Teardown()
-        {
-            ExporterOptions.PropertyChanged -= OnOptionsChanged;
-            ExporterOptions.ApplyServerRequested -= OnApplyServerRequested;
-            _server.StatusChanged -= OnServerStatusChanged;
-            _server.Stop();
-            ExporterOptions.ServerStatus = _server.Status;
-            foreach (var c in AllCollectors())
-            {
-                try { c.Dispose(); }
-                catch (Exception ex) { Logger.Error($"PrometheusExporter: {c.GetType().Name}.Dispose failed: {ex}"); }
-            }
-            return Task.CompletedTask;
-        }
-
-        private IEnumerable<IMetricCollector> AllCollectors()
-        {
-            yield return _equipment;
-            yield return _camera;
-            yield return _mount;
-            yield return _focuser;
-            yield return _filter;
-            yield return _guider;
-            yield return _image;
-            yield return _autofocus;
-            yield return _sequence;
-            yield return _dome;
-            yield return _rotator;
-            yield return _flat;
-            yield return _safety;
-            yield return _weather;
-            yield return _switch;
-        }
-
-        private void OnOptionsChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            switch (e.PropertyName)
-            {
-                // Port/BindAddress changes do NOT auto-restart the server. The user must click
-                // "Apply" in the Options panel to commit them — see OnApplyServerRequested. This
-                // avoids per-keystroke server churn and lets us surface real bind failures from
-                // a single deliberate attempt.
-                case nameof(PrometheusExporterOptions.SequencePollIntervalSeconds):
-                    _sequence.RestartTimer(ExporterOptions.SequencePollIntervalSeconds);
-                    Logger.Info($"PrometheusExporter: sequence poll interval -> {ExporterOptions.SequencePollIntervalSeconds}s");
-                    break;
-                case nameof(PrometheusExporterOptions.AfTimeoutMinutes):
-                    // Picked up on next AF run; nothing to restart now.
-                    break;
-            }
+            // Port/BindAddress changes do NOT auto-restart the server. The user must click
+            // "Apply" in the Options panel to commit them — see OnApplyServerRequested. This
+            // avoids per-keystroke server churn and lets us surface real bind failures from
+            // a single deliberate attempt.
+            case nameof(PrometheusExporterOptions.SequencePollIntervalSeconds):
+                _sequence.RestartTimer(ExporterOptions.SequencePollIntervalSeconds);
+                Logger.Info($"PrometheusExporter: sequence poll interval -> {ExporterOptions.SequencePollIntervalSeconds}s");
+                break;
+            case nameof(PrometheusExporterOptions.AfTimeoutMinutes):
+                // Picked up on next AF run; nothing to restart now.
+                break;
         }
     }
 }
