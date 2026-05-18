@@ -8,118 +8,118 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal class SequenceMetrics : IMetricCollector
 {
+    private readonly MetricFactory _factory;
+    private readonly ISequenceMediator _mediator;
+    private readonly PrometheusExporterOptions _options;
 
-    internal class SequenceMetrics : IMetricCollector
+    private readonly Gauge _status;
+    private readonly Counter _started;
+    private readonly Counter _completed;
+
+    private readonly HashSet<(string Category, string Item)> _running = new();
+    private readonly object _diffLock = new();
+    private Timer? _timer;
+
+    public SequenceMetrics(MetricFactory factory, ISequenceMediator mediator, PrometheusExporterOptions options)
     {
-        private readonly MetricFactory _factory;
-        private readonly ISequenceMediator _mediator;
-        private readonly PrometheusExporterOptions _options;
+        _factory = factory;
+        _mediator = mediator;
+        _options = options;
 
-        private readonly Gauge _status;
-        private readonly Counter _started;
-        private readonly Counter _completed;
+        var ln = _factory.LabelNames(Constants.LabelCategory, Constants.LabelItem);
+        _status = Metrics.CreateGauge("nina_status", "1 while sequence item is running, else 0", new GaugeConfiguration { LabelNames = ln });
+        _started = Metrics.CreateCounter("nina_status_count_started_total", "Count of sequence-item runs started", new CounterConfiguration { LabelNames = ln });
+        _completed = Metrics.CreateCounter("nina_status_count_completed_total", "Count of sequence-item runs completed", new CounterConfiguration { LabelNames = ln });
+    }
 
-        private readonly HashSet<(string Category, string Item)> _running = new();
-        private readonly object _diffLock = new();
-        private Timer? _timer;
+    public void Subscribe() => StartPolling();
 
-        public SequenceMetrics(MetricFactory factory, ISequenceMediator mediator, PrometheusExporterOptions options)
+    public virtual void StartPolling()
+    {
+        var ms = _options.SequencePollIntervalSeconds * 1000;
+        _timer = new Timer(_ => Poll(), null, ms, ms);
+    }
+
+    public virtual void RestartTimer(int newSeconds)
+    {
+        _timer?.Dispose();
+        var ms = newSeconds * 1000;
+        _timer = new Timer(_ => Poll(), null, ms, ms);
+    }
+
+    public virtual void StopPolling()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+
+    internal void Poll()
+    {
+        HashSet<(string, string)> current;
+        try
         {
-            _factory = factory;
-            _mediator = mediator;
-            _options = options;
-
-            var ln = _factory.LabelNames(Constants.LabelCategory, Constants.LabelItem);
-            _status = Metrics.CreateGauge("nina_status", "1 while sequence item is running, else 0", new GaugeConfiguration { LabelNames = ln });
-            _started = Metrics.CreateCounter("nina_status_count_started_total", "Count of sequence-item runs started", new CounterConfiguration { LabelNames = ln });
-            _completed = Metrics.CreateCounter("nina_status_count_completed_total", "Count of sequence-item runs completed", new CounterConfiguration { LabelNames = ln });
+            current = SnapshotRunning();
+        }
+        catch (Exception ex)
+        {
+            // NINA's Logger.Debug has no exception overload. Use full ToString (includes stack).
+            Logger.Debug($"SequenceMetrics: snapshot threw (mediator not ready?): {ex}");
+            return;
         }
 
-        public void Subscribe() => StartPolling();
-
-        public virtual void StartPolling()
+        lock (_diffLock)
         {
-            var ms = _options.SequencePollIntervalSeconds * 1000;
-            _timer = new Timer(_ => Poll(), null, ms, ms);
-        }
-
-        public virtual void RestartTimer(int newSeconds)
-        {
-            _timer?.Dispose();
-            var ms = newSeconds * 1000;
-            _timer = new Timer(_ => Poll(), null, ms, ms);
-        }
-
-        public virtual void StopPolling()
-        {
-            _timer?.Dispose();
-            _timer = null;
-        }
-
-        internal void Poll()
-        {
-            HashSet<(string, string)> current;
-            try
+            var (added, removed) = Diff(_running, current);
+            foreach (var (cat, it) in added)
             {
-                current = SnapshotRunning();
+                var lv = _factory.LabelValues(cat, it);
+                _started.WithLabels(lv).Inc();
+                _status.WithLabels(lv).Set(1);
             }
-            catch (Exception ex)
+            foreach (var (cat, it) in removed)
             {
-                Logger.Debug($"SequenceMetrics: snapshot threw — mediator not ready? {ex.Message}");
-                return;
+                var lv = _factory.LabelValues(cat, it);
+                _completed.WithLabels(lv).Inc();
+                _status.WithLabels(lv).Set(0);
             }
-
-            lock (_diffLock)
-            {
-                var (added, removed) = Diff(_running, current);
-                foreach (var (cat, it) in added)
-                {
-                    var lv = _factory.LabelValues(cat, it);
-                    _started.WithLabels(lv).Inc();
-                    _status.WithLabels(lv).Set(1);
-                }
-                foreach (var (cat, it) in removed)
-                {
-                    var lv = _factory.LabelValues(cat, it);
-                    _completed.WithLabels(lv).Inc();
-                    _status.WithLabels(lv).Set(0);
-                }
-                _running.Clear();
-                foreach (var c in current) _running.Add(c);
-            }
+            _running.Clear();
+            foreach (var c in current) _running.Add(c);
         }
+    }
 
-        internal static (List<(string, string)> Added, List<(string, string)> Removed) Diff(
-            HashSet<(string, string)> previous,
-            HashSet<(string, string)> current)
+    internal static (List<(string, string)> Added, List<(string, string)> Removed) Diff(
+        HashSet<(string, string)> previous,
+        HashSet<(string, string)> current)
+    {
+        var added = current.Except(previous).ToList();
+        var removed = previous.Except(current).ToList();
+        return (added, removed);
+    }
+
+    private HashSet<(string, string)> SnapshotRunning()
+    {
+        var set = new HashSet<(string, string)>();
+        if (!_mediator.Initialized) return set;
+        var items = _mediator.GetAdvancedSequencerCurrentRunningItems();
+        if (items == null) return set;
+        foreach (var item in items)
         {
-            var added = current.Except(previous).ToList();
-            var removed = previous.Except(current).ToList();
-            return (added, removed);
+            if (item == null) continue;
+            var category = item.Parent?.Name ?? item.Category ?? Constants.Unknown;
+            var name = item.Name ?? item.GetType().Name;
+            set.Add((category, name));
         }
+        return set;
+    }
 
-        private HashSet<(string, string)> SnapshotRunning()
-        {
-            var set = new HashSet<(string, string)>();
-            if (!_mediator.Initialized) return set;
-            var items = _mediator.GetAdvancedSequencerCurrentRunningItems();
-            if (items == null) return set;
-            foreach (var item in items)
-            {
-                if (item == null) continue;
-                var category = item.Parent?.Name ?? item.Category ?? Constants.Unknown;
-                var name = item.Name ?? item.GetType().Name;
-                set.Add((category, name));
-            }
-            return set;
-        }
-
-        public void Dispose()
-        {
-            StopPolling();
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        StopPolling();
+        GC.SuppressFinalize(this);
     }
 }

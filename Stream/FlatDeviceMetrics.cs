@@ -5,45 +5,44 @@ using NINA.Equipment.Interfaces.Mediator;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class FlatDeviceMetrics : IMetricCollector, IFlatDeviceConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IFlatDeviceMediator _mediator;
+    private readonly Gauge _brightness;
+    private readonly Gauge _lightOn;
+    private readonly Gauge _coverOpen;
+    private readonly Gauge _coverState;
 
-    internal sealed class FlatDeviceMetrics : IMetricCollector, IFlatDeviceConsumer
+    public FlatDeviceMetrics(MetricFactory factory, IFlatDeviceMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IFlatDeviceMediator _mediator;
-        private readonly Gauge _brightness;
-        private readonly Gauge _lightOn;
-        private readonly Gauge _coverOpen;
-        private readonly Gauge _coverState;
+        _factory = factory;
+        _mediator = mediator;
+        var ln = _factory.LabelNames();
+        _brightness = Metrics.CreateGauge("nina_flat_brightness", "Flat panel brightness 0..MaxBrightness", new GaugeConfiguration { LabelNames = ln });
+        _lightOn = Metrics.CreateGauge("nina_flat_light_on", "1 if flat panel light is on, else 0", new GaugeConfiguration { LabelNames = ln });
+        _coverOpen = Metrics.CreateGauge("nina_flat_cover_open", "1 if CoverState == Open, else 0", new GaugeConfiguration { LabelNames = ln });
+        _coverState = Metrics.CreateGauge("nina_flat_cover_state", "Raw CoverState enum value", new GaugeConfiguration { LabelNames = ln });
+    }
 
-        public FlatDeviceMetrics(MetricFactory factory, IFlatDeviceMediator mediator)
-        {
-            _factory = factory;
-            _mediator = mediator;
-            var ln = _factory.LabelNames();
-            _brightness = Metrics.CreateGauge("nina_flat_brightness", "Flat panel brightness 0..MaxBrightness", new GaugeConfiguration { LabelNames = ln });
-            _lightOn = Metrics.CreateGauge("nina_flat_light_on", "1 if flat panel light is on, else 0", new GaugeConfiguration { LabelNames = ln });
-            _coverOpen = Metrics.CreateGauge("nina_flat_cover_open", "1 if CoverState == Open, else 0", new GaugeConfiguration { LabelNames = ln });
-            _coverState = Metrics.CreateGauge("nina_flat_cover_state", "Raw CoverState enum value", new GaugeConfiguration { LabelNames = ln });
-        }
+    public void Subscribe() => _mediator.RegisterConsumer(this);
 
-        public void Subscribe() => _mediator.RegisterConsumer(this);
+    public void UpdateDeviceInfo(FlatDeviceInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        var lv = _factory.LabelValues();
+        _brightness.WithLabels(lv).Set(info.Brightness);
+        _lightOn.WithLabels(lv).Set(info.LightOn ? 1 : 0);
+        _coverOpen.WithLabels(lv).Set(info.CoverState == CoverState.Open ? 1 : 0);
+        _coverState.WithLabels(lv).Set((int)info.CoverState);
+    }
 
-        public void UpdateDeviceInfo(FlatDeviceInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            var lv = _factory.LabelValues();
-            _brightness.WithLabels(lv).Set(info.Brightness);
-            _lightOn.WithLabels(lv).Set(info.LightOn ? 1 : 0);
-            _coverOpen.WithLabels(lv).Set(info.CoverState == CoverState.Open ? 1 : 0);
-            _coverState.WithLabels(lv).Set((int)info.CoverState);
-        }
-
-        public void Dispose()
-        {
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }

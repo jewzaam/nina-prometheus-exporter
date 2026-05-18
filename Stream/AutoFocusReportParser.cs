@@ -27,85 +27,84 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class AutoFocusReport
+{
+    public string Filter { get; set; } = Constants.Unknown;
+    public string Method { get; set; } = Constants.Unknown;
+    public string Fitting { get; set; } = Constants.Unknown;
+    public int BacklashIn { get; set; }
+    public int BacklashOut { get; set; }
+    public string BacklashModel { get; set; } = Constants.Unknown;
+
+    public double FinalHfr { get; set; } = double.NaN;
+    public double DurationSeconds { get; set; } = double.NaN;
+    public double InitialPosition { get; set; } = double.NaN;
+    public double InitialHfr { get; set; } = double.NaN;
+    public double CalculatedPosition { get; set; } = double.NaN;
+    public double CalculatedHfr { get; set; } = double.NaN;
+
+    public Dictionary<string, double> RSquares { get; } = new();
+}
+
+internal static class AutoFocusReportParser
 {
 
-    internal sealed class AutoFocusReport
+    public static AutoFocusReport ParseFile(string path)
     {
-        public string Filter { get; set; } = Constants.Unknown;
-        public string Method { get; set; } = Constants.Unknown;
-        public string Fitting { get; set; } = Constants.Unknown;
-        public int BacklashIn { get; set; }
-        public int BacklashOut { get; set; }
-        public string BacklashModel { get; set; } = Constants.Unknown;
-
-        public double FinalHfr { get; set; } = double.NaN;
-        public double DurationSeconds { get; set; } = double.NaN;
-        public double InitialPosition { get; set; } = double.NaN;
-        public double InitialHfr { get; set; } = double.NaN;
-        public double CalculatedPosition { get; set; } = double.NaN;
-        public double CalculatedHfr { get; set; } = double.NaN;
-
-        public Dictionary<string, double> RSquares { get; } = new();
+        using var stream = File.OpenRead(path);
+        using var doc = JsonDocument.Parse(stream);
+        return Parse(doc.RootElement);
     }
 
-    internal static class AutoFocusReportParser
+    public static AutoFocusReport Parse(JsonElement root)
     {
-
-        public static AutoFocusReport ParseFile(string path)
+        var report = new AutoFocusReport
         {
-            using var stream = File.OpenRead(path);
-            using var doc = JsonDocument.Parse(stream);
-            return Parse(doc.RootElement);
-        }
-
-        public static AutoFocusReport Parse(JsonElement root)
+            Filter = GetString(root, "Filter", Constants.Unknown),
+            Method = GetString(root, "Method", Constants.Unknown),
+            Fitting = GetString(root, "Fitting", Constants.Unknown),
+            FinalHfr = GetDouble(root, "FinalHFR"),
+            DurationSeconds = ParseDurationSeconds(GetString(root, "Duration", string.Empty))
+        };
+        if (root.TryGetProperty("BacklashCompensation", out var bc))
         {
-            var report = new AutoFocusReport
-            {
-                Filter = GetString(root, "Filter", Constants.Unknown),
-                Method = GetString(root, "Method", Constants.Unknown),
-                Fitting = GetString(root, "Fitting", Constants.Unknown),
-                FinalHfr = GetDouble(root, "FinalHFR"),
-                DurationSeconds = ParseDurationSeconds(GetString(root, "Duration", string.Empty))
-            };
-            if (root.TryGetProperty("BacklashCompensation", out var bc))
-            {
-                report.BacklashIn = GetInt(bc, "BacklashIN", 0);
-                report.BacklashOut = GetInt(bc, "BacklashOUT", 0);
-                report.BacklashModel = GetString(bc, "BacklashCompensationModel", Constants.Unknown);
-            }
-            if (root.TryGetProperty("InitialFocusPoint", out var ifp))
-            {
-                report.InitialPosition = GetDouble(ifp, "Position");
-                report.InitialHfr = GetDouble(ifp, "Value");
-            }
-            if (root.TryGetProperty("CalculatedFocusPoint", out var cfp))
-            {
-                report.CalculatedPosition = GetDouble(cfp, "Position");
-                report.CalculatedHfr = GetDouble(cfp, "Value");
-            }
-            if (root.TryGetProperty("RSquares", out var rs))
-            {
-                foreach (var prop in rs.EnumerateObject())
-                {
-                    if (prop.Value.ValueKind == JsonValueKind.Number)
-                        report.RSquares[prop.Name] = prop.Value.GetDouble();
-                }
-            }
-            return report;
+            report.BacklashIn = GetInt(bc, "BacklashIN", 0);
+            report.BacklashOut = GetInt(bc, "BacklashOUT", 0);
+            report.BacklashModel = GetString(bc, "BacklashCompensationModel", Constants.Unknown);
         }
-
-        private static double ParseDurationSeconds(string s) =>
-            TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts) ? ts.TotalSeconds : double.NaN;
-
-        private static string GetString(JsonElement el, string name, string fallback) =>
-            el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? (p.GetString() ?? fallback) : fallback;
-
-        private static int GetInt(JsonElement el, string name, int fallback) =>
-            el.TryGetProperty(name, out var p) && p.TryGetInt32(out var v) ? v : fallback;
-
-        private static double GetDouble(JsonElement el, string name) =>
-            el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number ? p.GetDouble() : double.NaN;
+        if (root.TryGetProperty("InitialFocusPoint", out var ifp))
+        {
+            report.InitialPosition = GetDouble(ifp, "Position");
+            report.InitialHfr = GetDouble(ifp, "Value");
+        }
+        if (root.TryGetProperty("CalculatedFocusPoint", out var cfp))
+        {
+            report.CalculatedPosition = GetDouble(cfp, "Position");
+            report.CalculatedHfr = GetDouble(cfp, "Value");
+        }
+        if (root.TryGetProperty("RSquares", out var rs))
+        {
+            foreach (var prop in rs.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Number)
+                    report.RSquares[prop.Name] = prop.Value.GetDouble();
+            }
+        }
+        return report;
     }
+
+    private static double ParseDurationSeconds(string s) =>
+        TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts) ? ts.TotalSeconds : double.NaN;
+
+    private static string GetString(JsonElement el, string name, string fallback) =>
+        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? (p.GetString() ?? fallback) : fallback;
+
+    private static int GetInt(JsonElement el, string name, int fallback) =>
+        el.TryGetProperty(name, out var p) && p.TryGetInt32(out var v) ? v : fallback;
+
+    private static double GetDouble(JsonElement el, string name) =>
+        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number ? p.GetDouble() : double.NaN;
 }

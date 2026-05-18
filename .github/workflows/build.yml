@@ -17,6 +17,12 @@ on:
       - 'LICENSE'
       - '.gitignore'
 
+# Cancel in-progress runs on the same branch when a new commit lands.
+# Per standards/build/github-workflows.md.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -27,24 +33,35 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-          # Cache the NuGet packages dir. Keyed on csproj hashes — invalidates only when a project
-          # file changes. The NINA.Plugin nuget transitively drags in Accord/ASCOM/OxyPlot/etc., so
-          # the cold restore is ~60s; a warm cache cuts it to a few seconds.
+          # Cache the NuGet packages dir. Keyed on packages.lock.json — invalidates only when
+          # the resolved package set changes.
           cache: true
-          cache-dependency-path: '**/*.csproj'
+          cache-dependency-path: '**/packages.lock.json'
 
-      # Restore once, build once, test without rebuilding. The test project references the main
-      # project, so building it transitively builds the main DLL into bin/Release/.
-      # --locked-mode rejects drift from the committed packages.lock.json files; if NuGet wants
-      # to resolve anything not in the lock, restore fails. Run `make restore` locally to refresh.
-      - name: Restore
-        run: dotnet restore tests/NINA.Plugin.PrometheusExporter.Tests.csproj --locked-mode
+      - name: Install make (chocolatey)
+        run: choco install make -y --no-progress
+        shell: powershell
+
+      # Workflow calls Makefile targets, not duplicated dotnet commands
+      # (per standards/build/github-workflows.md: keep local and CI in lockstep).
+      - name: Restore (locked)
+        run: make restore RESTORE_FLAGS=--locked-mode
 
       - name: Build (Release)
-        run: dotnet build tests/NINA.Plugin.PrometheusExporter.Tests.csproj -c Release --no-restore
+        run: make build-release
 
       - name: Test
-        run: dotnet test tests/NINA.Plugin.PrometheusExporter.Tests.csproj -c Release --no-restore --no-build
+        run: make test-unit
+
+      - name: Format check
+        run: make test-format
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reachability check
+        run: make test-reachability
 
       - name: Upload plugin artifact
         if: github.ref == 'refs/heads/main'

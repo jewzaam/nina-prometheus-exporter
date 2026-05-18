@@ -4,35 +4,40 @@
 
 PROJECT          ?= NINA.Plugin.PrometheusExporter
 TEST_PROJECT     ?= tests/NINA.Plugin.PrometheusExporter.Tests.csproj
-DOTNET           ?= C:\Program Files\dotnet\dotnet.exe
+# Resolve dotnet from PATH (per standards/build/makefile.md "no hardcoded paths").
+# Override with `make DOTNET=/full/path/to/dotnet.exe` for non-standard installs.
+DOTNET           ?= dotnet
 PWSH             ?= powershell -NoProfile -ExecutionPolicy Bypass -File
 
-.PHONY: help check clean format install install-dev uninstall run-nina kill-nina \
+.PHONY: help check clean format install install-dev-nina uninstall run-nina kill-nina \
         build-debug build-release build-package \
-        test-env test-unit test-format restore
+        test-env test-unit test-format test-reachability restore
 
 .DEFAULT_GOAL := check
 
 help:  ## Show available targets
-	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "%-22s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "%-22s %s\n", $$1, $$2}'
 
-check: test-env build-release test-unit test-format  ## Default: full read-only quality gate
+check: test-env build-release test-unit test-format test-reachability  ## Default: full read-only quality gate
 
 clean:  ## dotnet clean + remove bin/, obj/
 	-"$(DOTNET)" clean
 	rm -rf bin obj tests/bin tests/obj
 
 format:  ## Apply dotnet format in place
-	"$(DOTNET)" format
+	"$(DOTNET)" format NINA.Plugin.PrometheusExporter.sln
 
-restore:  ## dotnet restore (regenerates packages.lock.json for both projects)
-	"$(DOTNET)" restore
-	"$(DOTNET)" restore $(TEST_PROJECT)
+restore:  ## dotnet restore (regenerates packages.lock.json for both projects). RESTORE_FLAGS=--locked-mode in CI.
+	"$(DOTNET)" restore $(RESTORE_FLAGS)
+	"$(DOTNET)" restore $(TEST_PROJECT) $(RESTORE_FLAGS)
 
 install: build-release  ## Build Release + copy DLLs to NINA Plugins dir
 	$(PWSH) scripts/install.ps1
 
-install-dev: kill-nina install run-nina  ## kill NINA, install, relaunch (avoids file-lock fight)
+# Renamed from install-dev: standards/build/makefile.md reserves install-dev for editable installs
+# with dev extras. Here we want a NINA-specific dev-loop convenience (kill NINA, install plugin,
+# relaunch NINA) so the file lock is released before the copy.
+install-dev-nina: kill-nina install run-nina  ## NINA dev-loop: kill NINA, install, relaunch
 
 kill-nina:  ## Stop any running NINA process so its DLL is free to overwrite
 	$(PWSH) scripts/kill-nina.ps1
@@ -59,4 +64,7 @@ test-unit: build-release  ## Run xUnit tests
 	"$(DOTNET)" test $(TEST_PROJECT) -c Release
 
 test-format:  ## Read-only formatting check
-	"$(DOTNET)" format --verify-no-changes
+	"$(DOTNET)" format NINA.Plugin.PrometheusExporter.sln --verify-no-changes
+
+test-reachability:  ## Verify all content files are reachable from CLAUDE.md / README.md
+	python scripts/reachability.py --check

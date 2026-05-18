@@ -3,103 +3,102 @@ using NINA.WPF.Base.Interfaces.Mediator;
 using Prometheus;
 using System;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class ImageMetrics : IMetricCollector
 {
+    private readonly MetricFactory _factory;
+    private readonly IImageSaveMediator _mediator;
 
-    internal sealed class ImageMetrics : IMetricCollector
+    private readonly Counter _exposureCount;
+    private readonly Gauge _hfr;
+    private readonly Gauge _stars;
+    private readonly Gauge _rmsArcsec;
+    private readonly Gauge _cameraTempPerImage;
+    private readonly Gauge _mean, _median, _stdev, _mad, _minAdu, _maxAdu;
+    private readonly Gauge _hfrStdev;
+
+    private static readonly string[] ExposureLabels =
+        { Constants.LabelExposureTimeSeconds, Constants.LabelFilter, Constants.LabelGain, Constants.LabelOffset, Constants.LabelBinning };
+
+    public ImageMetrics(MetricFactory factory, IImageSaveMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IImageSaveMediator _mediator;
+        _factory = factory;
+        _mediator = mediator;
 
-        private readonly Counter _exposureCount;
-        private readonly Gauge _hfr;
-        private readonly Gauge _stars;
-        private readonly Gauge _rmsArcsec;
-        private readonly Gauge _cameraTempPerImage;
-        private readonly Gauge _mean, _median, _stdev, _mad, _minAdu, _maxAdu;
-        private readonly Gauge _hfrStdev;
+        _exposureCount = Metrics.CreateCounter(
+            "nina_exposure_total",
+            "Count of saved exposures, labeled by exposure-time/filter/gain/offset/binning",
+            new CounterConfiguration { LabelNames = _factory.LabelNames(ExposureLabels) });
 
-        private static readonly string[] ExposureLabels =
-            { Constants.LabelExposureTimeSeconds, Constants.LabelFilter, Constants.LabelGain, Constants.LabelOffset, Constants.LabelBinning };
+        var ln = _factory.LabelNames();
+        _hfr = Metrics.CreateGauge("nina_detect_hfr", "Half-flux radius of last saved image", new GaugeConfiguration { LabelNames = ln });
+        _stars = Metrics.CreateGauge("nina_detect_stars", "Detected stars on last saved image", new GaugeConfiguration { LabelNames = ln });
+        _rmsArcsec = Metrics.CreateGauge("nina_detect_rms_arcsec", "Recorded total guiding RMS for last image", new GaugeConfiguration { LabelNames = ln });
+        _cameraTempPerImage = Metrics.CreateGauge("nina_detect_camera_temperature_celsius", "Camera temperature recorded on last image", new GaugeConfiguration { LabelNames = ln });
+        _mean = Metrics.CreateGauge("nina_image_mean", "Image mean ADU", new GaugeConfiguration { LabelNames = ln });
+        _median = Metrics.CreateGauge("nina_image_median", "Image median ADU", new GaugeConfiguration { LabelNames = ln });
+        _stdev = Metrics.CreateGauge("nina_image_stdev", "Image stdev ADU", new GaugeConfiguration { LabelNames = ln });
+        _mad = Metrics.CreateGauge("nina_image_mad", "Image median absolute deviation", new GaugeConfiguration { LabelNames = ln });
+        _minAdu = Metrics.CreateGauge("nina_image_min_adu", "Image minimum ADU", new GaugeConfiguration { LabelNames = ln });
+        _maxAdu = Metrics.CreateGauge("nina_image_max_adu", "Image maximum ADU", new GaugeConfiguration { LabelNames = ln });
+        _hfrStdev = Metrics.CreateGauge("nina_image_hfr_stdev", "HFR standard deviation across stars", new GaugeConfiguration { LabelNames = ln });
+        // FWHM and Eccentricity were on a newer IStarDetectionAnalysis interface; not in the
+        // currently-pinned NINA.Plugin 3.2.* nuget. Add back if/when we bump the minimum.
+    }
 
-        public ImageMetrics(MetricFactory factory, IImageSaveMediator mediator)
+    public void Subscribe() => _mediator.ImageSaved += OnImageSaved;
+
+    // Visible for testing.
+    internal string[] BuildExposureLabels(ImageSavedEventArgs args)
+    {
+        var image = args.MetaData?.Image;
+        var camera = args.MetaData?.Camera;
+        return _factory.LabelValues(
+            image == null || double.IsNaN(image.ExposureTime) ? Constants.Unknown : image.ExposureTime.ToString("F2"),
+            args.Filter ?? Constants.Unknown,
+            camera == null ? Constants.Unknown : camera.Gain.ToString(),
+            camera == null ? Constants.Unknown : camera.Offset.ToString(),
+            string.IsNullOrEmpty(image?.Binning) ? Constants.Unknown : image.Binning);
+    }
+
+    private void OnImageSaved(object? sender, ImageSavedEventArgs args)
+    {
+        if (args == null) return;
+
+        _exposureCount.WithLabels(BuildExposureLabels(args)).Inc();
+
+        var lv = _factory.LabelValues();
+        var sda = args.StarDetectionAnalysis;
+        var stats = args.Statistics;
+        var image = args.MetaData?.Image;
+        var camera = args.MetaData?.Camera;
+
+        if (sda != null)
         {
-            _factory = factory;
-            _mediator = mediator;
-
-            _exposureCount = Metrics.CreateCounter(
-                "nina_exposure_total",
-                "Count of saved exposures, labeled by exposure-time/filter/gain/offset/binning",
-                new CounterConfiguration { LabelNames = _factory.LabelNames(ExposureLabels) });
-
-            var ln = _factory.LabelNames();
-            _hfr = Metrics.CreateGauge("nina_detect_hfr", "Half-flux radius of last saved image", new GaugeConfiguration { LabelNames = ln });
-            _stars = Metrics.CreateGauge("nina_detect_stars", "Detected stars on last saved image", new GaugeConfiguration { LabelNames = ln });
-            _rmsArcsec = Metrics.CreateGauge("nina_detect_rms_arcsec", "Recorded total guiding RMS for last image", new GaugeConfiguration { LabelNames = ln });
-            _cameraTempPerImage = Metrics.CreateGauge("nina_detect_camera_temperature_celsius", "Camera temperature recorded on last image", new GaugeConfiguration { LabelNames = ln });
-            _mean = Metrics.CreateGauge("nina_image_mean", "Image mean ADU", new GaugeConfiguration { LabelNames = ln });
-            _median = Metrics.CreateGauge("nina_image_median", "Image median ADU", new GaugeConfiguration { LabelNames = ln });
-            _stdev = Metrics.CreateGauge("nina_image_stdev", "Image stdev ADU", new GaugeConfiguration { LabelNames = ln });
-            _mad = Metrics.CreateGauge("nina_image_mad", "Image median absolute deviation", new GaugeConfiguration { LabelNames = ln });
-            _minAdu = Metrics.CreateGauge("nina_image_min_adu", "Image minimum ADU", new GaugeConfiguration { LabelNames = ln });
-            _maxAdu = Metrics.CreateGauge("nina_image_max_adu", "Image maximum ADU", new GaugeConfiguration { LabelNames = ln });
-            _hfrStdev = Metrics.CreateGauge("nina_image_hfr_stdev", "HFR standard deviation across stars", new GaugeConfiguration { LabelNames = ln });
-            // FWHM and Eccentricity were on a newer IStarDetectionAnalysis interface; not in the
-            // currently-pinned NINA.Plugin 3.2.* nuget. Add back if/when we bump the minimum.
+            _hfr.WithLabels(lv).Set(sda.HFR);
+            _stars.WithLabels(lv).Set(sda.DetectedStars);
+            _hfrStdev.WithLabels(lv).Set(sda.HFRStDev);
         }
-
-        public void Subscribe() => _mediator.ImageSaved += OnImageSaved;
-
-        // Visible for testing.
-        internal string[] BuildExposureLabels(ImageSavedEventArgs args)
+        if (image?.RecordedRMS != null)
+            _rmsArcsec.WithLabels(lv).Set(image.RecordedRMS.Total);
+        if (camera != null && !double.IsNaN(camera.Temperature))
+            _cameraTempPerImage.WithLabels(lv).Set(camera.Temperature);
+        if (stats != null)
         {
-            var image = args.MetaData?.Image;
-            var camera = args.MetaData?.Camera;
-            return _factory.LabelValues(
-                image == null || double.IsNaN(image.ExposureTime) ? Constants.Unknown : image.ExposureTime.ToString("F2"),
-                args.Filter ?? Constants.Unknown,
-                camera == null ? Constants.Unknown : camera.Gain.ToString(),
-                camera == null ? Constants.Unknown : camera.Offset.ToString(),
-                string.IsNullOrEmpty(image?.Binning) ? Constants.Unknown : image.Binning);
+            _mean.WithLabels(lv).Set(stats.Mean);
+            _median.WithLabels(lv).Set(stats.Median);
+            _stdev.WithLabels(lv).Set(stats.StDev);
+            _mad.WithLabels(lv).Set(stats.MedianAbsoluteDeviation);
+            _minAdu.WithLabels(lv).Set(stats.Min);
+            _maxAdu.WithLabels(lv).Set(stats.Max);
         }
+    }
 
-        private void OnImageSaved(object? sender, ImageSavedEventArgs args)
-        {
-            if (args == null) return;
-
-            _exposureCount.WithLabels(BuildExposureLabels(args)).Inc();
-
-            var lv = _factory.LabelValues();
-            var sda = args.StarDetectionAnalysis;
-            var stats = args.Statistics;
-            var image = args.MetaData?.Image;
-            var camera = args.MetaData?.Camera;
-
-            if (sda != null)
-            {
-                _hfr.WithLabels(lv).Set(sda.HFR);
-                _stars.WithLabels(lv).Set(sda.DetectedStars);
-                _hfrStdev.WithLabels(lv).Set(sda.HFRStDev);
-            }
-            if (image?.RecordedRMS != null)
-                _rmsArcsec.WithLabels(lv).Set(image.RecordedRMS.Total);
-            if (camera != null && !double.IsNaN(camera.Temperature))
-                _cameraTempPerImage.WithLabels(lv).Set(camera.Temperature);
-            if (stats != null)
-            {
-                _mean.WithLabels(lv).Set(stats.Mean);
-                _median.WithLabels(lv).Set(stats.Median);
-                _stdev.WithLabels(lv).Set(stats.StDev);
-                _mad.WithLabels(lv).Set(stats.MedianAbsoluteDeviation);
-                _minAdu.WithLabels(lv).Set(stats.Min);
-                _maxAdu.WithLabels(lv).Set(stats.Max);
-            }
-        }
-
-        public void Dispose()
-        {
-            _mediator.ImageSaved -= OnImageSaved;
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.ImageSaved -= OnImageSaved;
+        GC.SuppressFinalize(this);
     }
 }

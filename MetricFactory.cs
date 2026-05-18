@@ -3,27 +3,26 @@ using NINA.Profile.Interfaces;
 using System;
 using System.Linq;
 
-namespace NINA.Plugin.PrometheusExporter
+namespace NINA.Plugin.PrometheusExporter;
+
+
+internal sealed class MetricFactory
 {
+    private readonly IProfileService _profileService;
+    private readonly string _hostName;
 
-    internal sealed class MetricFactory
+    public MetricFactory(IProfileService profileService)
     {
-        private readonly IProfileService _profileService;
-        private readonly string _hostName;
-
-        public MetricFactory(IProfileService profileService)
-        {
-            _profileService = profileService;
-            _hostName = Environment.MachineName ?? Constants.Unknown;
-        }
-
-        public string ProfileName => _profileService?.ActiveProfile?.Name ?? Constants.Unknown;
-        public string HostName => _hostName;
-
-        public string[] LabelNames(params string[] extra) =>
-            new[] { Constants.LabelProfileName, Constants.LabelHostName }.Concat(extra).ToArray();
-
-        public string[] LabelValues(params string[] extra) =>
-            new[] { ProfileName, _hostName }.Concat(extra).ToArray();
+        _profileService = profileService;
+        _hostName = Environment.MachineName ?? Constants.Unknown;
     }
+
+    public string ProfileName => _profileService?.ActiveProfile?.Name ?? Constants.Unknown;
+    public string HostName => _hostName;
+
+    public string[] LabelNames(params string[] extra) =>
+        new[] { Constants.LabelProfileName, Constants.LabelHostName }.Concat(extra).ToArray();
+
+    public string[] LabelValues(params string[] extra) =>
+        new[] { ProfileName, _hostName }.Concat(extra).ToArray();
 }

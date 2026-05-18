@@ -8,10 +8,10 @@ using System.Runtime.InteropServices;
 
 [assembly: Guid("7081dfb8-dc05-4bde-9810-bbba1afe8430")]
 
-// SemVer 3-segment for AssemblyVersion (.NET binding).
-[assembly: AssemblyVersion("0.1.0")]
-// 4-segment required by NINA's PluginLoader (constructs System.Version with all 4 components,
-// rejects negative revision). Trailing .0 is a fixed build segment, not exposed to users.
+// Always 4-segment per standards/dotnet/style.md and standards/dotnet/nina-plugin.md §3.
+// NINA's PluginLoader requires 4 components on AssemblyFileVersion (rejects negative revision);
+// AssemblyVersion mirrors the same format for consistency. The trailing .0 is a fixed build segment.
+[assembly: AssemblyVersion("0.1.0.0")]
 [assembly: AssemblyFileVersion("0.1.0.0")]
 
 [assembly: AssemblyTitle("Prometheus Exporter")]
@@ -20,8 +20,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("Prometheus Exporter")]
 [assembly: AssemblyCopyright("Copyright © 2026 Naveen Malik")]
 
-// Conservative back-floor — bump only when a new API is genuinely needed (see spec §14).
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "3.0.0.0")]
+// Matches the NINA.Plugin nuget version the plugin compiles against, per standards/dotnet/nina-plugin.md sec 10.4.
+// Bump whenever the NINA.Plugin PackageReference floor changes.
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.9001")]
 
 [assembly: AssemblyMetadata("License", "Apache-2.0")]
 [assembly: AssemblyMetadata("LicenseURL", "https://www.apache.org/licenses/LICENSE-2.0")]

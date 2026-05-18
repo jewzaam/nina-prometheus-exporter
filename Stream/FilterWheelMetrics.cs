@@ -5,66 +5,65 @@ using Prometheus;
 using System;
 using System.Threading.Tasks;
 
-namespace NINA.Plugin.PrometheusExporter.Stream
+namespace NINA.Plugin.PrometheusExporter.Stream;
+
+
+internal sealed class FilterWheelMetrics : IMetricCollector, IFilterWheelConsumer
 {
+    private readonly MetricFactory _factory;
+    private readonly IFilterWheelMediator _mediator;
 
-    internal sealed class FilterWheelMetrics : IMetricCollector, IFilterWheelConsumer
+    private readonly Gauge _position;
+    private readonly Gauge _current;
+
+    private string? _lastFilterName;
+
+    public FilterWheelMetrics(MetricFactory factory, IFilterWheelMediator mediator)
     {
-        private readonly MetricFactory _factory;
-        private readonly IFilterWheelMediator _mediator;
+        _factory = factory;
+        _mediator = mediator;
+        _position = Metrics.CreateGauge(
+            "nina_filter_position",
+            "Current filter-wheel slot index",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames() });
+        _current = Metrics.CreateGauge(
+            "nina_filter_current",
+            "1 for the currently selected filter, 0 for previously selected",
+            new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilterName) });
+    }
 
-        private readonly Gauge _position;
-        private readonly Gauge _current;
+    public void Subscribe()
+    {
+        _mediator.RegisterConsumer(this);
+        _mediator.FilterChanged += OnFilterChanged;
+    }
 
-        private string? _lastFilterName;
-
-        public FilterWheelMetrics(MetricFactory factory, IFilterWheelMediator mediator)
+    public void UpdateDeviceInfo(FilterWheelInfo info)
+    {
+        if (info == null || !info.Connected) return;
+        if (info.SelectedFilter != null)
         {
-            _factory = factory;
-            _mediator = mediator;
-            _position = Metrics.CreateGauge(
-                "nina_filter_position",
-                "Current filter-wheel slot index",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames() });
-            _current = Metrics.CreateGauge(
-                "nina_filter_current",
-                "1 for the currently selected filter, 0 for previously selected",
-                new GaugeConfiguration { LabelNames = _factory.LabelNames(Constants.LabelFilterName) });
+            _position.WithLabels(_factory.LabelValues()).Set(info.SelectedFilter.Position);
         }
+    }
 
-        public void Subscribe()
-        {
-            _mediator.RegisterConsumer(this);
-            _mediator.FilterChanged += OnFilterChanged;
-        }
+    private Task OnFilterChanged(object sender, FilterChangedEventArgs args)
+    {
+        var lv = _factory.LabelValues();
+        if (_lastFilterName != null)
+            _current.WithLabels(_factory.LabelValues(_lastFilterName)).Set(0);
+        var newName = args.To?.Name ?? Constants.Unknown;
+        _current.WithLabels(_factory.LabelValues(newName)).Set(1);
+        _lastFilterName = newName;
+        if (args.To != null)
+            _position.WithLabels(lv).Set(args.To.Position);
+        return Task.CompletedTask;
+    }
 
-        public void UpdateDeviceInfo(FilterWheelInfo info)
-        {
-            if (info == null || !info.Connected) return;
-            if (info.SelectedFilter != null)
-            {
-                _position.WithLabels(_factory.LabelValues()).Set(info.SelectedFilter.Position);
-            }
-        }
-
-        private Task OnFilterChanged(object sender, FilterChangedEventArgs args)
-        {
-            var lv = _factory.LabelValues();
-            if (_lastFilterName != null)
-                _current.WithLabels(_factory.LabelValues(_lastFilterName)).Set(0);
-            var newName = args.To?.Name ?? Constants.Unknown;
-            _current.WithLabels(_factory.LabelValues(newName)).Set(1);
-            _lastFilterName = newName;
-            if (args.To != null)
-                _position.WithLabels(lv).Set(args.To.Position);
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-            _mediator.FilterChanged -= OnFilterChanged;
-            _mediator.RemoveConsumer(this);
-            GC.SuppressFinalize(this);
-        }
+    public void Dispose()
+    {
+        _mediator.FilterChanged -= OnFilterChanged;
+        _mediator.RemoveConsumer(this);
+        GC.SuppressFinalize(this);
     }
 }
