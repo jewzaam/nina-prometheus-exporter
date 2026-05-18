@@ -10,15 +10,15 @@ DOTNET           ?= dotnet
 PWSH             ?= powershell -NoProfile -ExecutionPolicy Bypass -File
 
 .PHONY: help check clean format install install-dev-nina uninstall run-nina kill-nina \
-        build-debug build-release build-package \
-        test-env test-unit test-format test-reachability restore
+        build-debug build-release build-package build-manifest \
+        test-env test-unit test-format test-reachability test-version restore
 
 .DEFAULT_GOAL := check
 
 help:  ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "%-22s %s\n", $$1, $$2}'
 
-check: test-env build-release test-unit test-format test-reachability  ## Default: full read-only quality gate
+check: test-env build-release test-unit test-format test-reachability test-version  ## Default: full read-only quality gate
 
 clean:  ## dotnet clean + remove bin/, obj/
 	-"$(DOTNET)" clean
@@ -68,3 +68,9 @@ test-format:  ## Read-only formatting check
 
 test-reachability:  ## Verify all content files are reachable from CLAUDE.md / README.md
 	python scripts/reachability.py --check
+
+test-version:  ## Validate AssemblyInfo version format + source-pair match (and bump vs origin/$$BASE_REF when set)
+	$(PWSH) scripts/test-version.ps1
+
+build-manifest: build-package  ## Emit manifest.json for the NINA plugin-manifests repo (uses release zip checksum)
+	$(PWSH) scripts/build-manifest.ps1

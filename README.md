@@ -11,8 +11,10 @@ See [CLAUDE.md](CLAUDE.md) for the project index — design docs, implementation
 ## Install
 
 Either:
-1. Install via NINA's in-app plugin manager (once published), or
-2. Download the latest `.zip` from [Releases](https://github.com/jewzaam/nina-prometheus-exporter/releases) and extract its contents into `%LOCALAPPDATA%\NINA\Plugins\3.0.0\Prometheus Exporter\`.
+1. Install via NINA's in-app plugin manager (once accepted into [nina.plugin.manifests](https://github.com/isbeorn/nina.plugin.manifests)), or
+2. Download the latest `NINA.Plugin.PrometheusExporter.<version>.zip` from [Releases](https://github.com/jewzaam/nina-prometheus-exporter/releases) and extract its contents into `%LOCALAPPDATA%\NINA\Plugins\3.0.0\Prometheus Exporter\`.
+
+Releases are built automatically when a `X.Y.Z.0` tag is pushed (see [the versioning spec](docs/superpowers/specs/2026-05-18-versioning.md)). The `manifest.json` attached to each release is the file submitted to the NINA plugin-manifests repo.
 
 ## Configure
 

@@ -10,6 +10,7 @@ NINA 3.x plugin exposing a Prometheus scrape endpoint. C# / .NET 8 / WPF.
 - [Implementation plan](docs/superpowers/plans/2026-05-15-nina-prometheus-plugin.md) — task-by-task plan that produced the v0.1 implementation
 - [Original problem-statement spec](nina-prometheus-plugin-spec.md) — what we set out to expose, sourced from the existing log-exporter setup
 - [Coding-standards research prompt](docs/research-prompt-coding-standards.md) — prompt to feed `cited-research` for a standalone NINA-plugin standards doc
+- [Versioning + release flow](docs/superpowers/specs/2026-05-18-versioning.md) — deviation from semver standard (4-segment), tag-triggered release, NINA plugin-manifest submission
 
 ## Build / test / install
 

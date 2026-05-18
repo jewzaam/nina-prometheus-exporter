@@ -9,7 +9,9 @@ $ErrorActionPreference = 'Stop'
 $match = Select-String -Path Properties/AssemblyInfo.cs -Pattern 'AssemblyVersion\("([0-9.]+)"\)'
 if (-not $match) { Write-Error 'AssemblyVersion not found in Properties/AssemblyInfo.cs'; exit 1 }
 $ver = $match.Matches.Groups[1].Value
-$zip = "nina-prometheus-exporter-$ver.zip"
+# Name matches NINA's canonical github-action.yaml sample (<AssemblyName>.<X.Y.Z.B>.zip)
+# so the URL path in manifest.json matches what other plugin authors do.
+$zip = "NINA.Plugin.PrometheusExporter.$ver.zip"
 
 # Resolves $ResolvedShipDlls (absolute paths); hard-fails on missing, warns on extras.
 . (Join-Path $PSScriptRoot 'select-ship-dlls.ps1') -SourceDir $SourceDir
