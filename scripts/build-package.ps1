@@ -11,10 +11,18 @@ if (-not $match) { Write-Error 'AssemblyVersion not found in Properties/Assembly
 $ver = $match.Matches.Groups[1].Value
 $zip = "nina-prometheus-exporter-$ver.zip"
 
-if (-not (Test-Path $SourceDir)) {
-    Write-Error "Source dir not found: $SourceDir. Run 'make build-release' first."
-    exit 1
+# Resolves $ResolvedShipDlls (absolute paths); hard-fails on missing, warns on extras.
+. (Join-Path $PSScriptRoot 'select-ship-dlls.ps1') -SourceDir $SourceDir
+
+# Some shipped DLLs in our dependency graph carry pre-1980 LastWriteTime stamps that
+# Compress-Archive's underlying System.IO.Compression rejects. Normalize before zipping.
+$now = Get-Date
+foreach ($path in $ResolvedShipDlls) {
+    $file = Get-Item $path
+    if ($file.LastWriteTime.Year -lt 1980) {
+        $file.LastWriteTime = $now
+    }
 }
 
-Compress-Archive -Path "$SourceDir\*.dll" -DestinationPath $zip -Force
-Write-Output "Packaged $zip"
+Compress-Archive -Path $ResolvedShipDlls -DestinationPath $zip -Force
+Write-Output "Packaged $zip ($($ResolvedShipDlls.Count) DLLs)"
