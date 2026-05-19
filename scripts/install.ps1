@@ -2,7 +2,7 @@
 # Copy plugin DLLs to %LOCALAPPDATA%\NINA\Plugins\3.0.0\Prometheus Exporter\
 [CmdletBinding()]
 param(
-    [string]$SourceDir = 'bin\Release',
+    [string]$SourceDir = 'bin\x64\Release',
     [string]$PluginDir = (Join-Path $env:LOCALAPPDATA 'NINA\Plugins\3.0.0\Prometheus Exporter')
 )
 
