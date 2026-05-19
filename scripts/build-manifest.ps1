@@ -75,7 +75,22 @@ if (-not (Test-Path $ZipPath)) {
     Write-Error "Zip not found: $ZipPath (run 'make build-package' first)"
     exit 1
 }
-$hash = (Get-FileHash $ZipPath -Algorithm SHA256).Hash
+# Use .NET directly instead of Get-FileHash; the latter fails on some
+# Windows Server 2025 GitHub runners with "not recognized as cmdlet".
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $stream = [System.IO.File]::OpenRead($ZipPath)
+    try {
+        $hashBytes = $sha256.ComputeHash($stream)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+finally {
+    $sha256.Dispose()
+}
+$hash = ([BitConverter]::ToString($hashBytes)).Replace('-', '')
 
 if (-not $InstallerUrl) {
     $InstallerUrl = $env:INSTALLER_URL
