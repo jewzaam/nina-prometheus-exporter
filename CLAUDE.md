@@ -16,11 +16,23 @@ NINA 3.x plugin exposing a Prometheus scrape endpoint. C# / .NET 8 / WPF.
 
 ```
 make help                    # list targets
-make check                   # default: test-env + build-release + test-unit + test-format
+make check                   # default: test-env + build-release + test-unit + test-format + test-reachability + version-check
 make install                 # build Release, copy DLLs to %LOCALAPPDATA%\NINA\Plugins\3.0.0\Prometheus Exporter\
 make install-dev-nina        # kill NINA, install, relaunch (dev loop)
 make build-package           # zip the ship-list DLLs for GitHub release
+make version-check           # validate AssemblyInfo version format + sources match (+ bump vs $BASE_REF in CI)
+make build-manifest          # emit manifest.json for NINA plugin-manifests submission
 ```
+
+Build output lives at `bin\x64\Release\` (sln `Release|x64`). Scripts that read build output default there.
+
+## Release
+
+Auto-triggered. Bump `AssemblyVersion` + `AssemblyFileVersion` in `Properties/AssemblyInfo.cs` (must match, format `X.Y.Z.0`). On push to `main`, `ci.yml`'s `release` job creates and pushes tag `X.Y.Z.0`, builds the package, generates `manifest.json`, and attaches both to a GitHub release. Skips silently if the tag already exists. See [versioning spec](docs/superpowers/specs/2026-05-18-versioning.md).
+
+Branch protection: require the `quality` job as a status check. `release` doesn't run on PRs, and `ci` is the workflow name (not a check).
+
+Manifest submission to NINA's in-app plugin manager is out-of-band: PR `manifest.json` from each release to <https://github.com/isbeorn/nina.plugin.manifests> at `manifests/p/Prometheus Exporter/<version>/manifest.json`.
 
 ## Layout
 
