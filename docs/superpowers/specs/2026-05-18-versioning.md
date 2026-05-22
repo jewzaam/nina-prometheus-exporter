@@ -47,9 +47,10 @@ After a release lands on GitHub, run `make publish-manifest` from your workstati
 
 Prereqs (one-time):
 
-- `~/source/nina.plugin.manifests` is a clone of `<owner>/nina.plugin.manifests` (your fork) with:
-  - `origin` → your fork
-  - `upstream` → `https://github.com/isbeorn/nina.plugin.manifests`
+- `~/source/nina.plugin.manifests` is a clone of `nina.plugin.manifests` with two remotes:
+  - one whose URL matches `isbeorn/nina.plugin.manifests` (the upstream)
+  - one whose URL matches `<your-user>/nina.plugin.manifests` (your fork)
+  Remote names are not assumed — the script discovers each by URL. You can call them whatever (`origin`, `upstream`, `jewzaam`, etc.).
 - `gh` CLI authenticated as the fork owner.
 - `npx` + Node on PATH (for `test-manifest`).
 
