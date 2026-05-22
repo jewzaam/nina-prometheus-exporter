@@ -9,4 +9,5 @@ obj/
 __pycache__/
 *.zip
 manifest.json
+manifest.schema.json
 smoke-output.txt
