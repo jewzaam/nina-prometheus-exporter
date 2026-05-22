@@ -16,9 +16,10 @@
 #
 # Prerequisites:
 #   - gh CLI authenticated as the fork owner.
-#   - $ManifestsRepoDir is a clone of <owner>/nina.plugin.manifests with:
-#       origin   -> <owner>/nina.plugin.manifests (the fork)
-#       upstream -> isbeorn/nina.plugin.manifests
+#   - $ManifestsRepoDir is a clone of nina.plugin.manifests with TWO remotes:
+#       * one pointing at isbeorn/nina.plugin.manifests (upstream)
+#       * one pointing at <your-user>/nina.plugin.manifests (your fork)
+#     Remote names don't matter -- the script discovers each by URL.
 #   - npx + Node available (for the schema validation step).
 #
 # This script never touches credentials directly -- gh handles auth, git handles push.
@@ -27,8 +28,6 @@ param(
     [string]$ManifestsRepoDir = (Join-Path $HOME 'source/nina.plugin.manifests'),
     [string]$PluginDir = 'manifests/p/Prometheus Exporter',
     [string]$UpstreamRepo = 'isbeorn/nina.plugin.manifests',
-    [string]$UpstreamRemote = 'upstream',
-    [string]$ForkRemote = 'origin',
     [string]$BranchPrefix = 'prometheus-exporter'
 )
 
@@ -84,16 +83,35 @@ try {
         exit 1
     }
 
-    # Verify expected remotes
-    $remotes = (& git remote) -split "`r?`n"
-    if ($remotes -notcontains $ForkRemote) {
-        Write-Error "Expected remote '$ForkRemote' missing in $ManifestsRepoDir"
+    # Discover upstream + fork remotes from URLs rather than naming convention.
+    # Upstream = the remote pointing at $UpstreamRepo (isbeorn/nina.plugin.manifests).
+    # Fork     = any other remote pointing at <owner>/nina.plugin.manifests where owner != isbeorn.
+    $remoteNames = @((& git remote) -split "`r?`n" | Where-Object { $_ })
+    $UpstreamRemote = $null
+    $ForkRemote = $null
+    $ForkOwner = $null
+    foreach ($r in $remoteNames) {
+        $url = (& git remote get-url $r).Trim()
+        if ($url -match "[:/](?<owner>[^/]+)/nina\.plugin\.manifests(\.git)?$") {
+            $owner = $matches['owner']
+            if ($owner -ieq 'isbeorn') {
+                $UpstreamRemote = $r
+            }
+            elseif (-not $ForkRemote) {
+                $ForkRemote = $r
+                $ForkOwner = $owner
+            }
+        }
+    }
+    if (-not $UpstreamRemote) {
+        Write-Error "No remote points at $UpstreamRepo in $ManifestsRepoDir. Add one with: git remote add upstream https://github.com/$UpstreamRepo.git"
         exit 1
     }
-    if ($remotes -notcontains $UpstreamRemote) {
-        Write-Error "Expected remote '$UpstreamRemote' missing in $ManifestsRepoDir. Add it with: git remote add $UpstreamRemote https://github.com/$UpstreamRepo.git"
+    if (-not $ForkRemote) {
+        Write-Error "No fork remote found (a remote pointing at <user>/nina.plugin.manifests, owner != isbeorn) in $ManifestsRepoDir."
         exit 1
     }
+    Write-Output "Remotes: upstream='$UpstreamRemote', fork='$ForkRemote' (owner=$ForkOwner)"
 
     # Sync main with upstream
     Write-Output "Syncing main with $UpstreamRemote..."
@@ -137,8 +155,7 @@ try {
     if ($LASTEXITCODE -ne 0) { exit 1 }
 
     # --- 9. Open or update PR
-    $forkOwner = (& git remote get-url $ForkRemote) -replace '.*[:/]([^/]+)/[^/]+(?:\.git)?$', '$1'
-    $headRef = "${forkOwner}:${branch}"
+    $headRef = "${ForkOwner}:${branch}"
     $existing = & gh pr list --repo $UpstreamRepo --head $headRef --json number --jq '.[0].number'
 
     if ($existing) {

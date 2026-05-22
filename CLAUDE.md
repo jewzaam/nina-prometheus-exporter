@@ -36,7 +36,7 @@ Branch protection: require the `quality` job as a status check. `release` doesn'
 
 Manifest submission to NINA's in-app plugin manager is driven from your workstation with `make publish-manifest` after the release lands. The target downloads the release's `manifest.json`, validates it against the upstream schema, drops it at `manifests/p/Prometheus Exporter/manifest.<X.Y.Z.0>.json` in your local clone of `<owner>/nina.plugin.manifests`, force-pushes the branch to your fork, and opens (or updates) a PR against <https://github.com/isbeorn/nina.plugin.manifests>. Uses your existing `gh` CLI auth -- no broad-scope token in CI.
 
-Prereqs: clone the manifests repo to `~/source/nina.plugin.manifests` (or pass `MANIFESTS_REPO_DIR=<path>`), with `origin -> <owner>/nina.plugin.manifests` (the fork) and `upstream -> isbeorn/nina.plugin.manifests`.
+Prereqs: clone the manifests repo to `~/source/nina.plugin.manifests` (or pass `MANIFESTS_REPO_DIR=<path>`) with two remotes — one pointing at `isbeorn/nina.plugin.manifests` (upstream) and one pointing at `<your-user>/nina.plugin.manifests` (your fork). Remote names don't matter; the script discovers each by URL.
 
 ## Layout
 
