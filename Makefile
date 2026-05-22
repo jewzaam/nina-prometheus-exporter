@@ -10,8 +10,8 @@ DOTNET           ?= dotnet
 PWSH             ?= powershell -NoProfile -ExecutionPolicy Bypass -File
 
 .PHONY: help check clean format install install-dev-nina uninstall run-nina kill-nina \
-        build-debug build-release build-package build-manifest \
-        test-env test-unit test-format test-reachability version-check restore
+        build-debug build-release build-package build-manifest publish-manifest \
+        test-env test-unit test-format test-reachability test-manifest version-check restore
 
 .DEFAULT_GOAL := check
 
@@ -74,3 +74,11 @@ version-check:  ## Validate AssemblyInfo version format + source-pair match (and
 
 build-manifest: build-package  ## Emit manifest.json for the NINA plugin-manifests repo (uses release zip checksum)
 	$(PWSH) scripts/build-manifest.ps1
+
+test-manifest:  ## Validate manifest.json against the upstream NINA plugin-manifest schema (requires manifest.json present)
+	@test -f manifest.json || (echo "manifest.json missing -- run 'make build-manifest' first" && exit 1)
+	curl -sSLO https://raw.githubusercontent.com/isbeorn/nina.plugin.manifests/refs/heads/main/manifest.schema.json
+	npx --yes -p ajv-cli@5 -p ajv-formats@2 ajv validate -s manifest.schema.json -d manifest.json -c ajv-formats --strict=false
+
+publish-manifest:  ## Open/update a PR submitting this release's manifest to isbeorn/nina.plugin.manifests (local orchestrator; MANIFESTS_REPO_DIR overrides ~/source/nina.plugin.manifests)
+	$(PWSH) scripts/publish-manifest.ps1 $(if $(MANIFESTS_REPO_DIR),-ManifestsRepoDir "$(MANIFESTS_REPO_DIR)",)

@@ -22,6 +22,8 @@ make install-dev-nina        # kill NINA, install, relaunch (dev loop)
 make build-package           # zip the ship-list DLLs for GitHub release
 make version-check           # validate AssemblyInfo version format + sources match (+ bump vs $BASE_REF in CI)
 make build-manifest          # emit manifest.json for NINA plugin-manifests submission
+make test-manifest           # validate manifest.json against the upstream NINA schema (uses npx ajv)
+make publish-manifest        # open/update a PR submitting the release manifest to isbeorn/nina.plugin.manifests
 ```
 
 Build output lives at `bin\x64\Release\` (sln `Release|x64`). Scripts that read build output default there.
@@ -32,7 +34,9 @@ Auto-triggered. Bump `AssemblyVersion` + `AssemblyFileVersion` in `Properties/As
 
 Branch protection: require the `quality` job as a status check. `release` doesn't run on PRs, and `ci` is the workflow name (not a check).
 
-Manifest submission to NINA's in-app plugin manager is out-of-band: PR `manifest.json` from each release to <https://github.com/isbeorn/nina.plugin.manifests> at `manifests/p/Prometheus Exporter/<version>/manifest.json`.
+Manifest submission to NINA's in-app plugin manager is driven from your workstation with `make publish-manifest` after the release lands. The target downloads the release's `manifest.json`, validates it against the upstream schema, drops it at `manifests/p/Prometheus Exporter/manifest.<X.Y.Z.0>.json` in your local clone of `<owner>/nina.plugin.manifests`, force-pushes the branch to your fork, and opens (or updates) a PR against <https://github.com/isbeorn/nina.plugin.manifests>. Uses your existing `gh` CLI auth -- no broad-scope token in CI.
+
+Prereqs: clone the manifests repo to `~/source/nina.plugin.manifests` (or pass `MANIFESTS_REPO_DIR=<path>`), with `origin -> <owner>/nina.plugin.manifests` (the fork) and `upstream -> isbeorn/nina.plugin.manifests`.
 
 ## Layout
 

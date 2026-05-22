@@ -2,7 +2,10 @@
 # CI pipeline. Jobs:
 #   quality - PR + push main: `make check` (build, tests, format, reachability, version-check).
 #   release - push main only: tag X.Y.Z.0 from AssemblyVersion, package zip + manifest,
-#             create GitHub release. Skips if tag already exists.
+#             validate manifest against upstream schema, create GitHub release.
+#             Skips if tag already exists.
+# Manifest submission to isbeorn/nina.plugin.manifests is driven locally via
+# `make publish-manifest` (avoids needing a broad-scope GitHub token in CI).
 # Branch protection: require `quality` as a status check (not `ci`).
 # See docs/superpowers/specs/2026-05-18-versioning.md.
 name: ci
@@ -110,6 +113,14 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ steps.ver.outputs.version }}
+
+      # Validate against the upstream NINA manifest schema before publishing.
+      # Catches schema drift (renamed/removed fields, new required fields) at release time
+      # rather than at the manifest-PR review stage. Same command works locally.
+      - name: Validate manifest against upstream schema
+        if: steps.tagcheck.outputs.skip == 'false'
+        run: make test-manifest
+        shell: bash
 
       - name: Create and push tag
         if: steps.tagcheck.outputs.skip == 'false'
