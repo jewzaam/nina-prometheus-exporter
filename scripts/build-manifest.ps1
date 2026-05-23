@@ -107,6 +107,15 @@ if (-not $InstallerUrl) {
     }
 }
 
+# Guardrail: the URL must reference the same version we just wrote into the
+# manifest. Catches GH-Actions footguns like GITHUB_REF_NAME being read-only
+# (step-env override silently ignored), or any future plumbing slip that
+# would publish a manifest pointing at a non-existent release asset.
+if ($InstallerUrl -notmatch [regex]::Escape("/$ver/")) {
+    Write-Error "InstallerUrl '$InstallerUrl' does not contain '/$ver/'. Manifest URL and Version are out of sync; aborting."
+    exit 1
+}
+
 $manifest = [ordered]@{
     Name                      = $name
     Identifier                = $id
