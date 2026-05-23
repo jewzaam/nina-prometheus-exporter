@@ -107,12 +107,14 @@ jobs:
         if: steps.tagcheck.outputs.skip == 'false'
         run: make build-package
 
+      # INSTALLER_URL is plumbed directly because GITHUB_REF_NAME is a read-only
+      # runner-set env var: a step `env:` override is silently ignored, so we cannot
+      # use the version-from-ver-step that way. INSTALLER_URL has no such restriction.
       - name: Build manifest.json
         if: steps.tagcheck.outputs.skip == 'false'
         run: make build-manifest
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF_NAME: ${{ steps.ver.outputs.version }}
+          INSTALLER_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.version }}/NINA.Plugin.PrometheusExporter.${{ steps.ver.outputs.version }}.zip
 
       # Validate against the upstream NINA manifest schema before publishing.
       # Catches schema drift (renamed/removed fields, new required fields) at release time
