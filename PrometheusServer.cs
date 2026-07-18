@@ -53,9 +53,10 @@ internal class PrometheusServer
                 .WithAction("/metrics", HttpVerbs.Get, async ctx =>
                 {
                     ctx.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
+                    var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
                     using var ms = new MemoryStream();
                     await Metrics.DefaultRegistry.CollectAndExportAsTextAsync(ms, ctx.CancellationToken);
-                    await ctx.SendStringAsync(Encoding.UTF8.GetString(ms.ToArray()), "text/plain", Encoding.UTF8);
+                    await ctx.SendStringAsync(utf8NoBom.GetString(ms.ToArray()), "text/plain", utf8NoBom);
                 });
 
             Status = Constants.StatusStarting;
